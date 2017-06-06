@@ -24,6 +24,7 @@ import org.gbif.api.service.registry.InstallationService;
 import org.gbif.api.service.registry.NodeService;
 import org.gbif.api.service.registry.OrganizationService;
 import org.gbif.api.vocabulary.Country;
+import org.gbif.common.parsers.CountryParser;
 import org.gbif.watchdog.config.WatchdogModule;
 
 import java.io.File;
@@ -43,6 +44,8 @@ import javax.validation.constraints.NotNull;
 import com.beust.jcommander.internal.Lists;
 import com.beust.jcommander.internal.Maps;
 import com.beust.jcommander.internal.Sets;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.Ordering;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import org.apache.commons.lang3.StringUtils;
@@ -50,11 +53,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Hello world!
+ * Program scans all datasets registered in GBIF for potential orphaned datasets.
  */
 public class OrphanDatasetScanner {
   private static Logger LOG = LoggerFactory.getLogger(OrphanDatasetScanner.class);
+  private static final String CUTOFF_DATE = "2016-11-16";
+  private static final SimpleDateFormat ISO_8601_SDF = new SimpleDateFormat("yyyy-MM-dd");
   private static final Pattern escapeChars = Pattern.compile("[\t\n\r]");
+  private static final String TSV_EXTENSION = ".tsv";
+  private static final String YES = "YES";
+  private static final String PNMC = "Participant Node Managers Committee";
   private static final int PAGING_LIMIT = 100;
 
   private final DatasetService datasetService;
@@ -86,7 +94,11 @@ public class OrphanDatasetScanner {
   }
 
 
-  public void scan() throws ParseException {
+  /**
+   * Iterates over all datasets registered with GBIF checking for orphaned datasets. A dataset is flagged as a potential
+   * orphan if it hasn't been crawled successfully within the last X months.
+   */
+  public void scan() {
     PagingRequest datasetPage = new PagingRequest(0, PAGING_LIMIT);
     int datasets = 0;
     int orphans = 0;
@@ -97,66 +109,70 @@ public class OrphanDatasetScanner {
       datasetResults = datasetService.list(datasetPage);
       for (Dataset d : datasetResults.getResults()) {
         datasets++;
-        boolean orphaned = true;
-        String mostRecentCrawlEndpointType = null;
-        String mostRecentCrawlEndpointUri = null;
-        String mostRecentCrawlStatus = null; // store most recent crawl's status
-        String mostRecentCrawlDate = null; // date of most recent crawl in ISO 8601, to facilitate sorting
-        // iterate through the dataset's crawl history
-        PagingResponse<DatasetProcessStatus> statusResults = null;
-        PagingRequest statusPage = new PagingRequest(0, PAGING_LIMIT);
-        do {
-          try {
-            statusResults = statusService.listDatasetProcessStatus(d.getKey(), statusPage);
+        Organization organization = organizationService.get(d.getPublishingOrganizationKey());
+        if (!toIgnore(d, organization)) {
+          boolean orphaned = true;
+          String mostRecentCrawlEndpointType = null;
+          String mostRecentCrawlEndpointUri = null;
+          String mostRecentCrawlStatus = null;
+          String mostRecentCrawlDate = null;
 
-            // datasets that haven't been crawled yet, and registered before cutoff date are potential orphans
-            if (statusResults.getCount()==0 && !beforeCutoff(d.getCreated())) {
-              orphaned = true;
-            } else {
-              for (DatasetProcessStatus st : statusResults.getResults()) {
-                FinishReason finishReason = st.getFinishReason(); // NORMAL, USER_ABORT, ABORT, NOT_MODIFIED, UNKNOWN
-                Date finishedCrawling = st.getFinishedCrawling();
-                if (finishReason != null && finishedCrawling != null) {
-                  if (mostRecentCrawlStatus == null) {
-                    mostRecentCrawlStatus = finishReason.toString();
-                    mostRecentCrawlDate = convertToIsoDate(finishedCrawling);
-                    mostRecentCrawlEndpointType = (st.getCrawlJob().getEndpointType() == null) ? "" : st.getCrawlJob().getEndpointType().toString();
-                    mostRecentCrawlEndpointUri = (st.getCrawlJob().getTargetUrl() == null) ? "" : st.getCrawlJob().getTargetUrl().toString();
+          // iterate through the dataset's crawl history
+          PagingResponse<DatasetProcessStatus> statusResults = null;
+          PagingRequest statusPage = new PagingRequest(0, PAGING_LIMIT);
+          do {
+            try {
+              statusResults = statusService.listDatasetProcessStatus(d.getKey(), statusPage);
 
-                    // check: was most recent crawl successful, and occurred within last X months?
-                    if (beforeCutoff(finishedCrawling)
-                        && (finishReason.equals(FinishReason.NORMAL) || finishReason.equals(FinishReason.NOT_MODIFIED))) {
-                      orphaned = false;
-                      break;
+              // datasets that haven't been crawled yet, and registered before cutoff date are potential orphans
+              if (statusResults.getCount()==0 && !beforeCutoff(d.getCreated())) {
+                orphaned = true;
+              } else {
+                for (DatasetProcessStatus st : statusResults.getResults()) {
+                  FinishReason finishReason = st.getFinishReason(); // NORMAL, USER_ABORT, ABORT, NOT_MODIFIED, UNKNOWN
+                  Date finishedCrawling = st.getFinishedCrawling();
+                  if (finishReason != null && finishedCrawling != null) {
+                    if (mostRecentCrawlStatus == null) {
+                      mostRecentCrawlStatus = finishReason.toString();
+                      mostRecentCrawlDate = convertToIsoDate(finishedCrawling);
+                      mostRecentCrawlEndpointType = (st.getCrawlJob().getEndpointType() == null) ? "" : st.getCrawlJob().getEndpointType().toString();
+                      mostRecentCrawlEndpointUri = (st.getCrawlJob().getTargetUrl() == null) ? "" : st.getCrawlJob().getTargetUrl().toString();
+
+                      // check: was most recent crawl successful, and did it occur before cutoff?
+                      if (beforeCutoff(finishedCrawling)
+                          && (finishReason.equals(FinishReason.NORMAL) || finishReason.equals(FinishReason.NOT_MODIFIED))) {
+                        orphaned = false;
+                        break;
+                      }
                     }
-                  }
-                  // otherwise check: was this a successful crawl within the last X months?
-                  else if (beforeCutoff(finishedCrawling)) {
-                    if (finishReason != null && FinishReason.NORMAL.equals(finishReason)) {
-                      orphaned = false;
-                      break;
+                    // otherwise check: was this a successful crawl that occurred before cutoff?
+                    else if (beforeCutoff(finishedCrawling)) {
+                      if (finishReason != null && FinishReason.NORMAL.equals(finishReason)) {
+                        orphaned = false;
+                        break;
+                      }
                     }
                   }
                 }
               }
+              // TODO: investigate why "739cf09a-d05e-4241-91ba-418b756f3ed5" throws Exception: org.codehaus.jackson.map.JsonMappingException: Instantiation of [simple type, class org.gbif.api.model.crawler.CrawlJob] value failed: null (through reference chain: org.gbif.api.model.common.paging.PagingResponse["results"]->org.gbif.api.model.crawler.DatasetProcessStatus["crawlJob"])
+            } catch (Exception exception) {
+              LOG.info("Failure iterating: Dataset " + d.getKey() + " Exception: " + exception.getMessage());
             }
-            // TODO: investigate why "739cf09a-d05e-4241-91ba-418b756f3ed5" throws Exception: org.codehaus.jackson.map.JsonMappingException: Instantiation of [simple type, class org.gbif.api.model.crawler.CrawlJob] value failed: null (through reference chain: org.gbif.api.model.common.paging.PagingResponse["results"]->org.gbif.api.model.crawler.DatasetProcessStatus["crawlJob"])
-          } catch (Exception exception) {
-            LOG.info("Failure iterating. Dataset " + d.getKey() + " Exception: " + exception.getMessage());
-          }
-          statusPage.nextPage();
-        } while (statusResults != null && !statusResults.isEndOfRecords());
+            statusPage.nextPage();
+          } while (statusResults != null && !statusResults.isEndOfRecords());
 
-        Organization organization = organizationService.get(d.getPublishingOrganizationKey());
-        if (orphaned && !toIgnore(d, organization)) {
-          orphans++;
-          Node node = nodeService.get(organization.getEndorsingNodeKey());
-          String[] record = getRecord(d, organization, mostRecentCrawlEndpointType, mostRecentCrawlEndpointUri,
-            mostRecentCrawlStatus, mostRecentCrawlDate);
-          orphansByParticipant.computeIfAbsent(node.getParticipantTitle(), v -> Lists.newArrayList()).add(record);
+          if (orphaned) {
+            orphans++;
+            Node node = nodeService.get(organization.getEndorsingNodeKey());
+            String[] record = getRecord(d, organization, mostRecentCrawlEndpointType, mostRecentCrawlEndpointUri,
+              mostRecentCrawlStatus, mostRecentCrawlDate);
+            String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
+            orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
+          }
         }
       } datasetPage.nextPage();
-    } while (!datasetResults.isEndOfRecords() && datasets < 5000);
+    } while (!datasetResults.isEndOfRecords());
     LOG.info("Total # of datasets: " + datasets);
     LOG.info("Total # of orphaned datasets: " + orphans);
 
@@ -170,13 +186,19 @@ public class OrphanDatasetScanner {
    */
   private void writeMapToFiles(Map<String, List<String[]>> map) {
     LOG.info("Writing orphans to file - one for each participant..");
+    // sort map by keys
+    ImmutableSortedMap<String, List<String[]>> sortedMap =
+      ImmutableSortedMap.copyOf(map, Ordering.natural().nullsFirst());
+
     int files = 0;
-    for (String p : map.keySet()) {
+    for (String p : sortedMap.keySet()) {
       files++;
       Writer writer;
       File out = null;
       try {
-        out = new File(outputDirectory, p + ".txt");
+        String fileName = p + TSV_EXTENSION;
+        fileName = fileName.replaceAll(" ", "");
+        out = new File(outputDirectory, fileName);
         writer = org.gbif.utils.file.FileUtils.startNewUtf8File(out);
 
         // write header to output file
@@ -185,14 +207,32 @@ public class OrphanDatasetScanner {
         // write records to output file
         int datasets = 0;
         Set<String> installations = Sets.newHashSet();
-        for (String[] r : map.get(p)) {
+        long numOccurrences = 0;
+        String country = null;
+        for (String[] r : sortedMap.get(p)) {
           writer.write(tabRow(r));
           datasets++;
           installations.add(r[6]);
+          numOccurrences = numOccurrences + Integer.valueOf(r[4].replaceAll("\"", ""));
+          country = r[11].replaceAll("\"", "");
         }
         writer.close();
-        //
-        LOG.info("| " + p + " | " + datasets + " | " + installations.size() + " | " + "[View](#) |" );
+
+        long countryOccurrenceCount = 0;
+        if (country != null && country.equalsIgnoreCase(p)) {
+          countryOccurrenceCount = countryCount(CountryParser.getInstance().parse(country).getPayload());
+        }
+
+        // % occurrences orphaned?
+        int percentageOccurrencesOrphaned =
+          (countryOccurrenceCount > 0) ? Math.round((numOccurrences * 100 / countryOccurrenceCount)) : 0;
+
+        // logging below used to generate GitHub markdown table
+        System.out.println("| " + p + " | " + datasets + " | " + installations.size() + " | " + numOccurrences + " | "
+                           + countryOccurrenceCount + " | " + percentageOccurrencesOrphaned + " | "
+                           + "[View](https://github.com/kbraak/watchdog/blob/master/lists/orphans/" + fileName
+                           + ") / [Download](https://raw.githubusercontent.com/kbraak/watchdog/master/lists/orphans/"
+                           + fileName + ") |");
       } catch (IOException e) {
         LOG.error("Exception while writing to output file: " + out.getAbsolutePath());
       }
@@ -209,19 +249,19 @@ public class OrphanDatasetScanner {
   private String convertToIsoDate(@NotNull Date date) {
     Calendar cal = Calendar.getInstance();
     cal.setTime(date);
-    SimpleDateFormat iso8601 = new SimpleDateFormat("yyyy-MM-dd");
-    return iso8601.format(cal.getTime());
+    return ISO_8601_SDF.format(cal.getTime());
   }
 
   /**
    * @return header as tab row
    */
+  @NotNull
   private String getHeader() {
     String[] header =
       new String[] {"datasetTitle", "datasetKey", "datasetType", "hasEndpoints", "numOccurrences", "numNameUsages",
         "installationKey", "installationType", "organisationKey", "organisationTitle", "participantTitle",
         "countryOfParticipant", "gbifRegistrationDate", "mostRecentCrawlEndpointType", "mostRecentCrawlEndpointUri",
-        "mostRecentCrawlDate", "mostRecentCrawlStatus"};
+        "mostRecentCrawlDate", "mostRecentCrawlStatus", "orphaned?(YES/NO)"};
     return tabRow(header);
   }
 
@@ -235,6 +275,7 @@ public class OrphanDatasetScanner {
    *
    * @return record as String array
    */
+  @NotNull
   private String[] getRecord(Dataset dataset, Organization organization, String mostRecentCrawlEndpointType,
     String mostRecentCrawlEndpointUri, String mostRecentCrawlStatus, String mostRecentCrawlDate) {
 
@@ -262,7 +303,7 @@ public class OrphanDatasetScanner {
       String.valueOf(hasEndpoints), String.valueOf(numOccurrences), String.valueOf(numNameUsages),
       installation.getKey().toString(), installation.getType().toString(), organization.getKey().toString(),
       organization.getTitle(), node.getParticipantTitle(), country.getTitle(), registered, mostRecentCrawlEndpointType,
-      mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus};
+      mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus, YES};
   }
 
   /**
@@ -272,12 +313,10 @@ public class OrphanDatasetScanner {
    * @return true if date happened before cutoff date, false otherwise
    */
   private boolean beforeCutoff(@NotNull Date date) throws ParseException {
-    SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy");
-    Date cutoff = sdf.parse("16/11/2016");
+    Date cutoff = ISO_8601_SDF.parse(CUTOFF_DATE);
     return cutoff.compareTo(date) < 0;
   }
 
-  @NotNull
   private long countryCount(Country country) {
     SearchResponse response = null;
     try {
