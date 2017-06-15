@@ -116,6 +116,7 @@ public class OrphanDatasetScanner {
           String mostRecentCrawlEndpointUri = null;
           String mostRecentCrawlStatus = null;
           String mostRecentCrawlDate = null;
+          String potentialFalsePostitive = null;
 
           // iterate through the dataset's crawl history
           PagingResponse<DatasetProcessStatus> statusResults = null;
@@ -124,11 +125,15 @@ public class OrphanDatasetScanner {
             try {
               statusResults = statusService.listDatasetProcessStatus(d.getKey(), statusPage);
 
+              List<DatasetProcessStatus> results = statusResults.getResults();
+              // check if latest crawl history has empty start date indicative of phantom crawl and potential false positive!
+              potentialFalsePostitive = String.valueOf((results != null && !results.isEmpty() && results.get(0) != null
+                                                        && results.get(0).getStartedCrawling() == null)).toUpperCase();
               // datasets that haven't been crawled yet, and registered before cutoff date are potential orphans
               if (statusResults.getCount()==0 && !beforeCutoff(d.getCreated())) {
                 orphaned = true;
               } else {
-                for (DatasetProcessStatus st : statusResults.getResults()) {
+                for (DatasetProcessStatus st : results) {
                   FinishReason finishReason = st.getFinishReason(); // NORMAL, USER_ABORT, ABORT, NOT_MODIFIED, UNKNOWN
                   Date finishedCrawling = st.getFinishedCrawling();
                   if (finishReason != null && finishedCrawling != null) {
@@ -166,7 +171,7 @@ public class OrphanDatasetScanner {
             orphans++;
             Node node = nodeService.get(organization.getEndorsingNodeKey());
             String[] record = getRecord(d, organization, mostRecentCrawlEndpointType, mostRecentCrawlEndpointUri,
-              mostRecentCrawlStatus, mostRecentCrawlDate);
+              mostRecentCrawlStatus, mostRecentCrawlDate, potentialFalsePostitive);
             String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
             orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
           }
@@ -261,7 +266,7 @@ public class OrphanDatasetScanner {
       new String[] {"datasetTitle", "datasetKey", "datasetType", "hasEndpoints", "numOccurrences", "numNameUsages",
         "installationKey", "installationType", "organisationKey", "organisationTitle", "participantTitle",
         "countryOfParticipant", "gbifRegistrationDate", "mostRecentCrawlEndpointType", "mostRecentCrawlEndpointUri",
-        "mostRecentCrawlDate", "mostRecentCrawlStatus", "orphaned?(YES/NO)"};
+        "mostRecentCrawlDate", "mostRecentCrawlStatus", "potentialFalsePositive?(YES/NO)","orphaned?(YES/NO)"};
     return tabRow(header);
   }
 
@@ -272,12 +277,14 @@ public class OrphanDatasetScanner {
    * @param mostRecentCrawlEndpointUri  URI of most recent crawled Endpoint
    * @param mostRecentCrawlStatus       Status of last crawl, either NORMAL, USER_ABORT, ABORT, NOT_MODIFIED, UNKNOWN
    * @param mostRecentCrawlDate         Date of most recent crawl in ISO 8601 format
+   * @param potentialFalsePostitive     true if this dataset is potentially a false positive, false otherwise
    *
    * @return record as String array
    */
   @NotNull
   private String[] getRecord(Dataset dataset, Organization organization, String mostRecentCrawlEndpointType,
-    String mostRecentCrawlEndpointUri, String mostRecentCrawlStatus, String mostRecentCrawlDate) {
+    String mostRecentCrawlEndpointUri, String mostRecentCrawlStatus, String mostRecentCrawlDate,
+    String potentialFalsePostitive) {
 
     Installation installation = installationService.get(dataset.getInstallationKey());
     Node node = nodeService.get(organization.getEndorsingNodeKey());
@@ -303,7 +310,7 @@ public class OrphanDatasetScanner {
       String.valueOf(hasEndpoints), String.valueOf(numOccurrences), String.valueOf(numNameUsages),
       installation.getKey().toString(), installation.getType().toString(), organization.getKey().toString(),
       organization.getTitle(), node.getParticipantTitle(), country.getTitle(), registered, mostRecentCrawlEndpointType,
-      mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus, YES};
+      mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus, potentialFalsePostitive, YES};
   }
 
   /**
@@ -375,6 +382,45 @@ public class OrphanDatasetScanner {
       }
     }
     return StringUtils.join(columns, '\t') + "\n";
+  }
+
+  /**
+   * Iterates over all datasets registered with GBIF checking if their first crawl history is a phantom crawl,
+   * meaning it has no start date.
+   */
+  public void scanPhantoms() {
+    PagingRequest datasetPage = new PagingRequest(0, PAGING_LIMIT);
+    int datasets = 0;
+    int phantoms = 0;
+    // iterate through all datasets
+    PagingResponse<Dataset> datasetResults;
+    do {
+      datasetResults = datasetService.list(datasetPage);
+      for (Dataset d : datasetResults.getResults()) {
+        datasets++;
+        // iterate through the dataset's crawl history
+        PagingResponse<DatasetProcessStatus> statusResults = null;
+        PagingRequest statusPage = new PagingRequest(0, PAGING_LIMIT);
+        do {
+          try {
+            statusResults = statusService.listDatasetProcessStatus(d.getKey(), statusPage);
+            List<DatasetProcessStatus> results = statusResults.getResults();
+            // check latest crawl history has empty start date (indicative of phantom crawl)
+            boolean phantom = (results != null && !results.isEmpty() && results.get(0) != null && results.get(0).getStartedCrawling() == null);
+
+            if (phantom) {
+              phantoms++;
+              LOG.error("Phantom crawl for dataset: " + d.getKey());
+            }
+          } catch (Exception exception) {
+            LOG.error("Failure iterating: Dataset " + d.getKey() + " Exception: " + exception.getMessage());
+          }
+          statusPage.nextPage();
+        } while (statusResults != null && !statusResults.isEndOfRecords());
+      } datasetPage.nextPage();
+    } while (!datasetResults.isEndOfRecords());
+    LOG.info("Total # of datasets: " + datasets);
+    LOG.info("Total # of phantom crawls: " + phantoms);
   }
 
   public static void main(String[] args) throws ParseException, IOException {
