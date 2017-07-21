@@ -18,7 +18,6 @@
 
   <properties>
     <jdkLevel>1.8</jdkLevel>
-
     <guice.version>4.0</guice.version>
     <junit.version>4.12</junit.version>
     <occurrence-ws-client.version>0.61</occurrence-ws-client.version>
@@ -27,53 +26,9 @@
     <checklistbank-ws-client.version>2.53</checklistbank-ws-client.version>
     <slf4j.version>1.7.21</slf4j.version>
     <logback.version>1.1.7</logback.version>
-
-
-    <apache-poi.version>3.15</apache-poi.version>
-    <commons-digester.version>2.1</commons-digester.version>
-    <commons-lang3.version>3.5</commons-lang3.version>
-    <commons-io.version>2.5</commons-io.version>
-    <commons-validator.version>1.5.1</commons-validator.version>
-    <validation-api.version>1.1.0.Final</validation-api.version>
-    <dwca-io.version>1.27</dwca-io.version>
-    <gbif-api.version>0.53</gbif-api.version>
-    <gbif-parsers.version>0.29</gbif-parsers.version>
-
-
-    <gbif-common-ws.version>0.37</gbif-common-ws.version>
-    <gbif-metadata-profile.version>1.1.1</gbif-metadata-profile.version>
-    <gbif-common.version>0.32</gbif-common.version>
-    <gbif-doi.version>1.5</gbif-doi.version>
-    <dwc-api.version>1.16</dwc-api.version>
-    <guava.version>18.0</guava.version>
-    <freemarker.version>2.3.25-incubating</freemarker.version>
-    <gson.version>2.7</gson.version>
-
-    <httpclient.version>4.3.6</httpclient.version>
-    <httpcore.version>4.3.3</httpcore.version>
-    <itext.version>2.1.7</itext.version>
-    <javassist.version>3.12.1.GA</javassist.version>
-    <jetty-maven-plugin.version>7.6.12.v20130726</jetty-maven-plugin.version>
-    <jsp-api.version>2.0</jsp-api.version>
-    <jtds.version>1.3.1</jtds.version>
-
-    <log4j.version>1.2.17</log4j.version>
-    <mockito-all.version>1.10.19</mockito-all.version>
-    <!-- warning!! Connector/J 6.0 does not work with Java6, read http://dev.mysql.com/doc/connector-j/6.0/en/connector-j-versions.html -->
-    <mysql-connector-java.version>5.1.40</mysql-connector-java.version>
-    <ojdbc.version>14</ojdbc.version>
-    <!-- warning!! 9.4.1211.jre7 does not work with Java6, read https://jdbc.postgresql.org/download.html -->
-    <postgresql.version>9.4.1211.jre6</postgresql.version>
-    <javax.mail.version>1.4.7</javax.mail.version>
-    <servlet-api.version>2.5</servlet-api.version>
-    <struts2.version>2.3.32</struts2.version>
-    <xstream.version>1.4.8</xstream.version>
-    <jsr305.version>3.0.1</jsr305.version>
-    <httputils.version>0.10</httputils.version>
-    <jackson2.version>2.8.4</jackson2.version>
-    <jersey.version>1.18.3</jersey.version>
-
+    <servletapi.version>3.0.1</servletapi.version>
     <occurrence-ws-client.version>0.61</occurrence-ws-client.version>
+    <gbif-common.version>0.32</gbif-common.version>
   </properties>
 
   <repositories>
@@ -116,6 +71,12 @@
       <groupId>com.google.inject</groupId>
       <artifactId>guice</artifactId>
       <version>${guice.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>javax.servlet</groupId>
+      <artifactId>javax.servlet-api</artifactId>
+      <version>${servletapi.version}</version>
     </dependency>
 
     <!-- Logging -->
