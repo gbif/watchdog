@@ -29,6 +29,10 @@
     <servletapi.version>3.0.1</servletapi.version>
     <occurrence-ws-client.version>0.61</occurrence-ws-client.version>
     <gbif-common.version>0.32</gbif-common.version>
+    <gbif-httputils.version>0.10</gbif-httputils.version>
+    <httpclient.version>4.3.6</httpclient.version>
+    <guava.version>18.0</guava.version>
+    <gbif-metadata-profile.version>1.1.1</gbif-metadata-profile.version>
   </properties>
 
   <repositories>
@@ -65,6 +69,16 @@
       <artifactId>checklistbank-ws-client</artifactId>
       <version>${checklistbank-ws-client.version}</version>
     </dependency>
+    <dependency>
+      <groupId>org.gbif</groupId>
+      <artifactId>gbif-httputils</artifactId>
+      <version>${gbif-httputils.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.gbif</groupId>
+      <artifactId>gbif-metadata-profile</artifactId>
+      <version>${gbif-metadata-profile.version}</version>
+    </dependency>
 
     <!-- Google -->
     <dependency>
@@ -72,11 +86,21 @@
       <artifactId>guice</artifactId>
       <version>${guice.version}</version>
     </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>${guava.version}</version>
+    </dependency>
 
     <dependency>
       <groupId>javax.servlet</groupId>
       <artifactId>javax.servlet-api</artifactId>
       <version>${servletapi.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient</artifactId>
+      <version>${httpclient.version}</version>
     </dependency>
 
     <!-- Logging -->
