@@ -69,6 +69,9 @@ public class DatasetRescuer {
   private static final String IPT_RESOURCE_TEMPLATE = "resource.ftl";
   private static final Configuration FTL = provideFreemarker();
   private static final String IPT_RESOURCE = "/resource.xml";
+  private static final String IPT_SOURCES = "sources";
+  private static final String VERSIONED_EML = "eml-1.0.xml";
+  private static final String VERSIONED_DWCA = "dwca-1.0.zip";
 
   DownloadRequestService downloadRequestService;
   OccurrenceDownloadService occurrenceDownloadService;
@@ -162,18 +165,22 @@ public class DatasetRescuer {
       eml.setCitation(emlGbif.getCitation());
     }
 
+    // TODO fix issue with preservationMethods causing Freemarker template exception
+
     // wipe resource logo, to avoid calling broken links
     eml.setLogoUrl(null);
 
+    // make DwC-A folder
     File tmpRescuedDir = Files.createTempDir();
+
+    // write eml.xml file to DwC-A folder
     File updatedEml = new File(tmpRescuedDir, RESCUED_EML);
     EmlWriter.writeEmlFile(updatedEml, eml);
-    LOG.info("Updated EML: " + updatedEml.getAbsolutePath());
 
-    // retrieve verbatim.txt file
-    FileUtils.moveFile(new File(tmpDecompressDir, GBIF_DOWNLOAD_VERBATIM), new File(tmpRescuedDir, RESCUED_OCCURRENCE));
+    // retrieve verbatim.txt file, and copy to DwC-A folder
+    FileUtils.copyFile(new File(tmpDecompressDir, GBIF_DOWNLOAD_VERBATIM), new File(tmpRescuedDir, RESCUED_OCCURRENCE));
 
-    // retrieve meta.xml file
+    // retrieve meta.xml file, and copy to DwC-A folder
     File rescuedMeta = new File(tmpRescuedDir, RESCUED_META);
     FileUtils.copyInputStreamToFile(DatasetRescuer.class.getResourceAsStream(RESCUED_META_PATH), rescuedMeta);
 
@@ -186,7 +193,27 @@ public class DatasetRescuer {
     File resourceXml = new File(iptResourceDir, IPT_RESOURCE);
     Dataset dataset = datasetService.get(UUID.fromString(datasetKey));
     writeIptResourceFile(resourceXml, dataset, downloadMetadata);
-    LOG.info("IPT Resource: " + resourceXml.getAbsolutePath());
+
+    // make sources folder in IPT resource folder
+    File sources = new File(iptResourceDir, IPT_SOURCES);
+    sources.mkdir();
+
+    // retrieve verbatim.txt file, and copy to IPT sources folder
+    FileUtils.copyFile(new File(tmpDecompressDir, GBIF_DOWNLOAD_VERBATIM), new File(sources, RESCUED_OCCURRENCE));
+
+    // write eml.xml file to IPT resource folder
+    File iptEml = new File(iptResourceDir, RESCUED_EML);
+    EmlWriter.writeEmlFile(iptEml, eml);
+
+    // write eml.xml file version 1.0 to IPT resource folder
+    File versionedEml = new File(iptResourceDir, VERSIONED_EML);
+    EmlWriter.writeEmlFile(versionedEml, eml);
+
+    // write compressed (.zip) DwC-A file version 1.0 to IPT resource folder
+    File versionedDwca = new File(iptResourceDir, VERSIONED_DWCA);
+    CompressionUtil.zipDir(tmpRescuedDir, versionedDwca);
+
+    LOG.info("IPT Resource folder: " + iptResourceDir.getAbsolutePath());
   }
 
   public static void main(String[] args)
