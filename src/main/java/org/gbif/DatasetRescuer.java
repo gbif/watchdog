@@ -26,6 +26,7 @@ import java.io.InputStream;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.text.ParseException;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.UUID;
 import javax.xml.parsers.ParserConfigurationException;
@@ -60,6 +61,8 @@ public class DatasetRescuer {
   private static final int MAX_PER_ROUTE = 1;
   private static final String GBIF_DOWNLOAD_EML = "metadata.xml";
   private static final String GBIF_DOWNLOAD_VERBATIM = "verbatim.txt";
+  private static final String GBIF_DOWNLOAD_NAME = "GBIF Occurrence Download";
+  private static final String RESCUED_DISCLAIMER = "Note: this dataset was previously orphaned. It has been rescued by 1) scraping it from the GBIF.org index (see GBIF Download in External Data) and 2) republishing it on this IPT data hosting centre as version 1.0.";
 
   private static final String RESCUED_EML = "eml.xml";
   private static final String RESCUED_OCCURRENCE = "occurrence.txt";
@@ -90,15 +93,22 @@ public class DatasetRescuer {
    * @param datasetKey GBIF datasetKey (UUID)
    */
   private void rescue(String datasetKey)
-    throws IOException, ParserConfigurationException, SAXException, TemplateException {
+    throws IOException, ParserConfigurationException, SAXException, TemplateException, NoSuchFieldException,
+    InterruptedException {
     EqualsPredicate p = new EqualsPredicate(OccurrenceSearchParameter.DATASET_KEY, datasetKey);
     DownloadRequest request = new DownloadRequest(p, "Kyle Braak", Sets.newHashSet(), true, DownloadFormat.DWCA);
-    //String download = downloadRequestService.create(request);
-    //LOG.info("Download: " + download); // e.g. 0011461-170714134226665
+    String downloadKey = downloadRequestService.create(request); // e.g. 0011461-170714134226665
 
-    // TODO
-    // check download succeeded (status = success)
-    Download downloadMetadata = occurrenceDownloadService.get("0011461-170714134226665");
+    // retrieves the download file if it is available
+    Download downloadMetadata = occurrenceDownloadService.get(downloadKey);
+
+    // proceed after download succeeds...
+    do {
+      Thread.sleep(10000);
+      LOG.info("Waiting for download [" + downloadKey + "] to complete...");
+      downloadMetadata = occurrenceDownloadService.get(downloadKey); // try again
+    } while (downloadMetadata == null || !downloadMetadata.isAvailable());
+
     LOG.info(downloadMetadata.getStatus().name());
 
     // retrieve download link, DOI and license
@@ -128,9 +138,9 @@ public class DatasetRescuer {
     Eml emlGbif = EmlFactory.build(emlGbifIs);
     LOG.info(emlGbif.getPhysicalData().toString());
 
-    // ensure license is set, otherwise use license from download
-    if (eml.parseLicenseUrl() == null && emlGbif.getIntellectualRights() != null) {
-      eml.setIntellectualRights(emlGbif.getIntellectualRights());
+    // ensure license is set!
+    if (eml.parseLicenseUrl() == null) {
+      throw new NoSuchFieldException("License must always be set!");
     }
 
     Agent rescuer = new Agent();
@@ -151,45 +161,50 @@ public class DatasetRescuer {
     eml.addMetadataProvider(rescuer);
 
     // add external link to GBIF download (DwC-A format) that was used to rescue dataset - this must be preserved forever
-    if (emlGbif.getPhysicalData().size() > 0) {
+    if (!emlGbif.getPhysicalData().isEmpty()) {
       PhysicalData physicalData = emlGbif.getPhysicalData().get(0);
-      physicalData.setName("GBIF Occurrence Download");
+      physicalData.setName(GBIF_DOWNLOAD_NAME);
       eml.addPhysicalData(physicalData);
     }
 
-    // add me with role "processor" to associated parties
-    eml.addAssociatedParty(rescuer);
-
-    // ensure citation is set, otherwise take default citation from download.xml file
-    if (eml.getCitationString() == null && emlGbif.getCitationString() != null) {
-      eml.setCitation(emlGbif.getCitation());
+    // ensure specimen preservation methods are lowercase, otherwise IPT doesn't recognize method
+    ListIterator<String> iterator = eml.getSpecimenPreservationMethods().listIterator();
+    while (iterator.hasNext()) {
+      iterator.set(iterator.next().toLowerCase());
     }
-
-    // TODO fix issue with preservationMethods causing Freemarker template exception
 
     // wipe resource logo, to avoid calling broken links
     eml.setLogoUrl(null);
 
+    // reset version to 1.0
+    eml.setEmlVersion(1, 0);
+
+    // add paragraph to description, explaining that this dataset has been rescued by scraping it from GBIF.org
+    eml.getDescription().add(RESCUED_DISCLAIMER);
+
     // make DwC-A folder
-    File tmpRescuedDir = Files.createTempDir();
+    File dwcaFolder = Files.createTempDir();
 
     // write eml.xml file to DwC-A folder
-    File updatedEml = new File(tmpRescuedDir, RESCUED_EML);
+    File updatedEml = new File(dwcaFolder, RESCUED_EML);
     EmlWriter.writeEmlFile(updatedEml, eml);
 
     // retrieve verbatim.txt file, and copy to DwC-A folder
-    FileUtils.copyFile(new File(tmpDecompressDir, GBIF_DOWNLOAD_VERBATIM), new File(tmpRescuedDir, RESCUED_OCCURRENCE));
+    FileUtils.copyFile(new File(tmpDecompressDir, GBIF_DOWNLOAD_VERBATIM), new File(dwcaFolder, RESCUED_OCCURRENCE));
 
     // retrieve meta.xml file, and copy to DwC-A folder
-    File rescuedMeta = new File(tmpRescuedDir, RESCUED_META);
+    File rescuedMeta = new File(dwcaFolder, RESCUED_META);
     FileUtils.copyInputStreamToFile(DatasetRescuer.class.getResourceAsStream(RESCUED_META_PATH), rescuedMeta);
 
     // upload to IPT
+
+    // make IPT resource directory
+    File iptResourceDir = new File("/tmp", datasetKey);
+    iptResourceDir.mkdir();
+
     // ensure publishing organisation set (prerequisite being the organisation and user kbraak@gbif.org must be added to the IPT before it can be loaded)
     // ensure auto-generation of citation turned on
     // make its visibility registered by default
-    // ensure resource metadata validates
-    File iptResourceDir = Files.createTempDir();
     File resourceXml = new File(iptResourceDir, IPT_RESOURCE);
     Dataset dataset = datasetService.get(UUID.fromString(datasetKey));
     writeIptResourceFile(resourceXml, dataset, downloadMetadata);
@@ -211,17 +226,18 @@ public class DatasetRescuer {
 
     // write compressed (.zip) DwC-A file version 1.0 to IPT resource folder
     File versionedDwca = new File(iptResourceDir, VERSIONED_DWCA);
-    CompressionUtil.zipDir(tmpRescuedDir, versionedDwca);
+    CompressionUtil.zipDir(dwcaFolder, versionedDwca);
 
     LOG.info("IPT Resource folder: " + iptResourceDir.getAbsolutePath());
   }
 
   public static void main(String[] args)
-    throws ParseException, IOException, ParserConfigurationException, SAXException, TemplateException {
+    throws ParseException, IOException, ParserConfigurationException, SAXException, TemplateException,
+    NoSuchFieldException, InterruptedException {
     Injector injector = Guice.createInjector(new WatchdogModule());
     DatasetRescuer rescuer = new DatasetRescuer(injector.getInstance(DownloadRequestService.class),
       injector.getInstance(OccurrenceDownloadService.class), injector.getInstance(DatasetService.class));
-    rescuer.rescue("98333cb6-6c15-4add-aa0e-b322bf1500ba");
+    rescuer.rescue("81119a40-f762-11e1-a439-00145eb45e9a");
   }
 
   /**
