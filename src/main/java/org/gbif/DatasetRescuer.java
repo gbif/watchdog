@@ -6,9 +6,11 @@ import org.gbif.api.model.occurrence.DownloadRequest;
 import org.gbif.api.model.occurrence.predicate.EqualsPredicate;
 import org.gbif.api.model.occurrence.search.OccurrenceSearchParameter;
 import org.gbif.api.model.registry.Dataset;
+import org.gbif.api.model.registry.Organization;
 import org.gbif.api.service.occurrence.DownloadRequestService;
 import org.gbif.api.service.registry.DatasetService;
 import org.gbif.api.service.registry.OccurrenceDownloadService;
+import org.gbif.api.service.registry.OrganizationService;
 import org.gbif.metadata.eml.Agent;
 import org.gbif.metadata.eml.Eml;
 import org.gbif.metadata.eml.EmlFactory;
@@ -26,6 +28,7 @@ import java.io.InputStream;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.text.ParseException;
+import java.util.Arrays;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.UUID;
@@ -79,12 +82,14 @@ public class DatasetRescuer {
   DownloadRequestService downloadRequestService;
   OccurrenceDownloadService occurrenceDownloadService;
   DatasetService datasetService;
+  OrganizationService organizationService;
 
   DatasetRescuer(DownloadRequestService occurrenceDownloadWsClient, OccurrenceDownloadService occurrenceDownloadService,
-    DatasetService datasetService) throws IOException {
+    DatasetService datasetService, OrganizationService organizationService) throws IOException {
     this.downloadRequestService = occurrenceDownloadWsClient;
     this.occurrenceDownloadService = occurrenceDownloadService;
     this.datasetService = datasetService;
+    this.organizationService = organizationService;
   }
 
   /**
@@ -97,10 +102,13 @@ public class DatasetRescuer {
     InterruptedException {
     EqualsPredicate p = new EqualsPredicate(OccurrenceSearchParameter.DATASET_KEY, datasetKey);
     DownloadRequest request = new DownloadRequest(p, "Kyle Braak", Sets.newHashSet(), true, DownloadFormat.DWCA);
-    String downloadKey = downloadRequestService.create(request); // e.g. 0011461-170714134226665
+    //String downloadKey = downloadRequestService.create(request); // e.g. 0011461-170714134226665
+    String downloadKey = "0011461-170714134226665";
 
     // retrieves the download file if it is available
-    Download downloadMetadata = occurrenceDownloadService.get(downloadKey);
+
+    //Download downloadMetadata = occurrenceDownloadService.get(downloadKey);
+    Download downloadMetadata = null;
 
     // proceed after download succeeds...
     do {
@@ -143,22 +151,37 @@ public class DatasetRescuer {
       throw new NoSuchFieldException("License must always be set!");
     }
 
-    Agent rescuer = new Agent();
-    rescuer.setFirstName("Kyle");
-    rescuer.setLastName("Braak");
-    rescuer.setEmail("helpdesk@gbif.org");
-    rescuer.setOrganisation("GBIFS");
-    rescuer.setRole("processor");
-    rescuer.addUserId(new UserId("http://orcid.org/", "0000-0002-3696-3496"));
+    // Kyle Braak GBIFS
+    Agent rescuer1 = new Agent();
+    rescuer1.setFirstName("Kyle");
+    rescuer1.setLastName("Braak");
+    rescuer1.setEmail("helpdesk@gbif.org");
+    rescuer1.setOrganisation("GBIFS");
+    rescuer1.setRole("processor");
+    rescuer1.addUserId(new UserId("http://orcid.org/", "0000-0002-3696-3496"));
 
-    // add up-to-date point of contact (e.g. GBIF Helpdesk or me) thereby also fulfilling minimum requirement
-    eml.addContact(rescuer);
+    // Katia Cezón GBIF Spain
+    Agent rescuer2 = new Agent();
+    rescuer2.setFirstName("Katia");
+    rescuer2.setLastName("Cezón");
+    rescuer2.setEmail("katia@gbif.es");
+    rescuer2.setOrganisation("GBIF Spain");
+    rescuer2.addUserId(new UserId("http://orcid.org/", "0000-0002-3696-3496"));
 
-    // add up-to-date creator (e.g. me) thereby also fulfilling minimum requirement
-    eml.addCreator(rescuer);
+    // publishing organisation
+    Agent publishingOrg = new Agent();
+    Dataset dataset = datasetService.get(UUID.fromString(datasetKey));
+    Organization organization = organizationService.get(dataset.getPublishingOrganizationKey());
+    publishingOrg.setOrganisation(organization.getTitle());
 
-    // add up-to-date metadata provider (e.g. me) thereby also fulfilling minimum requirement
-    eml.addMetadataProvider(rescuer);
+    // add up-to-date point of contact thereby also fulfilling minimum requirement
+    eml.setContacts(Arrays.asList(rescuer2));
+
+    // add up-to-date creator thereby also fulfilling minimum requirement in order of priority high to low
+    eml.setCreators(Arrays.asList(publishingOrg, rescuer2, rescuer1));
+
+    // add up-to-date metadata provider thereby also fulfilling minimum requirement
+    eml.setMetadataProviders(Arrays.asList(rescuer1));
 
     // add external link to GBIF download (DwC-A format) that was used to rescue dataset - this must be preserved forever
     if (!emlGbif.getPhysicalData().isEmpty()) {
@@ -206,7 +229,6 @@ public class DatasetRescuer {
     // ensure auto-generation of citation turned on
     // make its visibility registered by default
     File resourceXml = new File(iptResourceDir, IPT_RESOURCE);
-    Dataset dataset = datasetService.get(UUID.fromString(datasetKey));
     writeIptResourceFile(resourceXml, dataset, downloadMetadata);
 
     // make sources folder in IPT resource folder
@@ -236,7 +258,8 @@ public class DatasetRescuer {
     NoSuchFieldException, InterruptedException {
     Injector injector = Guice.createInjector(new WatchdogModule());
     DatasetRescuer rescuer = new DatasetRescuer(injector.getInstance(DownloadRequestService.class),
-      injector.getInstance(OccurrenceDownloadService.class), injector.getInstance(DatasetService.class));
+      injector.getInstance(OccurrenceDownloadService.class), injector.getInstance(DatasetService.class),
+      injector.getInstance(OrganizationService.class));
     rescuer.rescue("81119a40-f762-11e1-a439-00145eb45e9a");
   }
 
