@@ -24,6 +24,7 @@ import org.gbif.api.service.registry.InstallationService;
 import org.gbif.api.service.registry.NodeService;
 import org.gbif.api.service.registry.OrganizationService;
 import org.gbif.api.vocabulary.Country;
+import org.gbif.api.vocabulary.MediaType;
 import org.gbif.common.parsers.CountryParser;
 import org.gbif.watchdog.config.WatchdogModule;
 
@@ -48,6 +49,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Ordering;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.sun.jersey.api.client.ClientHandlerException;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +59,7 @@ import org.slf4j.LoggerFactory;
  */
 public class OrphanDatasetScanner {
   private static Logger LOG = LoggerFactory.getLogger(OrphanDatasetScanner.class);
-  private static final String CUTOFF_DATE = "2016-11-16";
+  private static final String CUTOFF_DATE = "2017-04-25";
   private static final SimpleDateFormat ISO_8601_SDF = new SimpleDateFormat("yyyy-MM-dd");
   private static final Pattern escapeChars = Pattern.compile("[\t\n\r]");
   private static final String TSV_EXTENSION = ".tsv";
@@ -75,6 +77,7 @@ public class OrphanDatasetScanner {
   private final DatasetProcessStatusService statusService;
 
   private Map<String, List<String[]>> orphansByParticipant;
+  private List<String[]> allOrphans;
   private final File outputDirectory;
 
   OrphanDatasetScanner(DatasetService datasetService, OrganizationService organizationService, NodeService nodeService,
@@ -90,6 +93,7 @@ public class OrphanDatasetScanner {
     this.occurrenceSearchService = occurrenceSearchService;
     this.statusService = statusService;
     orphansByParticipant = Maps.newHashMap();
+    allOrphans = Lists.newArrayList();
     outputDirectory = org.gbif.utils.file.FileUtils.createTempDir();
   }
 
@@ -108,6 +112,9 @@ public class OrphanDatasetScanner {
     do {
       datasetResults = datasetService.list(datasetPage);
       for (Dataset d : datasetResults.getResults()) {
+        if(datasets % 1000 == 0) {
+          LOG.info("Iterated over " + datasets + " datasets");
+        }
         datasets++;
         Organization organization = organizationService.get(d.getPublishingOrganizationKey());
         if (!toIgnore(d, organization)) {
@@ -116,7 +123,7 @@ public class OrphanDatasetScanner {
           String mostRecentCrawlEndpointUri = null;
           String mostRecentCrawlStatus = null;
           String mostRecentCrawlDate = null;
-          String potentialFalsePostitive = null;
+          boolean potentialFalsePostitive = false;
 
           // iterate through the dataset's crawl history
           PagingResponse<DatasetProcessStatus> statusResults = null;
@@ -127,8 +134,8 @@ public class OrphanDatasetScanner {
 
               List<DatasetProcessStatus> results = statusResults.getResults();
               // check if latest crawl history has empty start date indicative of phantom crawl and potential false positive!
-              potentialFalsePostitive = String.valueOf((results != null && !results.isEmpty() && results.get(0) != null
-                                                        && results.get(0).getStartedCrawling() == null)).toUpperCase();
+              potentialFalsePostitive = (results != null && !results.isEmpty() && results.get(0) != null
+                                                        && results.get(0).getStartedCrawling() == null);
               // datasets that haven't been crawled yet, and registered before cutoff date are potential orphans
               if (statusResults.getCount()==0 && !beforeCutoff(d.getCreated())) {
                 orphaned = true;
@@ -167,13 +174,16 @@ public class OrphanDatasetScanner {
             statusPage.nextPage();
           } while (statusResults != null && !statusResults.isEndOfRecords());
 
-          if (orphaned) {
+          // Warning: excluding false positives until phantom crawl issue gets fixed: https://github.com/gbif/crawler/issues/3
+          if (orphaned && !potentialFalsePostitive) {
             orphans++;
             Node node = nodeService.get(organization.getEndorsingNodeKey());
-            String[] record = getRecord(d, organization, mostRecentCrawlEndpointType, mostRecentCrawlEndpointUri,
-              mostRecentCrawlStatus, mostRecentCrawlDate, potentialFalsePostitive);
+            String[] record =
+              getRecord(d, organization, mostRecentCrawlEndpointType, mostRecentCrawlEndpointUri, mostRecentCrawlStatus,
+                mostRecentCrawlDate, String.valueOf(potentialFalsePostitive).toUpperCase());
             String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
             orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
+            allOrphans.add(record.clone());
           }
         }
       } datasetPage.nextPage();
@@ -183,6 +193,8 @@ public class OrphanDatasetScanner {
 
     // write orphans to file, separated by participant
     writeMapToFiles(orphansByParticipant);
+    // write all orphans to single file
+    writeListToFiles(allOrphans);
   }
 
   /**
@@ -247,6 +259,33 @@ public class OrphanDatasetScanner {
   }
 
   /**
+   * For each entry in List<String[]>, method writes array of strings to new file.
+   * The header and each string in the list is a tab row whose columns correspond to each other.
+   */
+  private void writeListToFiles(List<String[]> ls) {
+    LOG.info("Writing all orphans to file..");
+    Writer writer;
+    File out = null;
+    try {
+      String fileName = "allOrphans" + TSV_EXTENSION;
+      out = new File(outputDirectory, fileName);
+      writer = org.gbif.utils.file.FileUtils.startNewUtf8File(out);
+
+      // write header to output file
+      writer.write(getHeader());
+
+      // write records to output file
+      for (String[] r : ls) {
+        writer.write(tabRow(r));
+      }
+      writer.close();
+    } catch (IOException e) {
+      LOG.error("Exception while writing to output file: " + out.getAbsolutePath());
+    }
+    LOG.info("All orphans written to: " + out.getAbsolutePath());
+  }
+
+  /**
    * @param date date
    * @return date in ISO 8601, e.g. to facilitate sorting
    */
@@ -266,7 +305,8 @@ public class OrphanDatasetScanner {
       new String[] {"datasetTitle", "datasetKey", "datasetType", "hasEndpoints", "numOccurrences", "numNameUsages",
         "installationKey", "installationType", "organisationKey", "organisationTitle", "participantTitle",
         "countryOfParticipant", "gbifRegistrationDate", "mostRecentCrawlEndpointType", "mostRecentCrawlEndpointUri",
-        "mostRecentCrawlDate", "mostRecentCrawlStatus", "potentialFalsePositive?(YES/NO)","orphaned?(YES/NO)"};
+        "mostRecentCrawlDate", "mostRecentCrawlStatus", "potentialFalsePositive?(YES/NO)","orphaned?(YES/NO)",
+        "numImages"};
     return tabRow(header);
   }
 
@@ -306,11 +346,15 @@ public class OrphanDatasetScanner {
       numNameUsages = metrics.getUsagesCount();
     }
 
+    // how many images?
+    long imageCount = imageCount(dataset.getKey());
+
     return new String[] {dataset.getTitle(), dataset.getKey().toString(), dataset.getType().toString(),
       String.valueOf(hasEndpoints), String.valueOf(numOccurrences), String.valueOf(numNameUsages),
       installation.getKey().toString(), installation.getType().toString(), organization.getKey().toString(),
       organization.getTitle(), node.getParticipantTitle(), country.getTitle(), registered, mostRecentCrawlEndpointType,
-      mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus, potentialFalsePostitive, YES};
+      mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus, potentialFalsePostitive, YES,
+      String.valueOf(imageCount)};
   }
 
   /**
@@ -324,6 +368,9 @@ public class OrphanDatasetScanner {
     return cutoff.compareTo(date) < 0;
   }
 
+ /*
+ * Return the number of occurrences published by a dataset.
+ */
   private long countryCount(Country country) {
     SearchResponse response = null;
     try {
@@ -337,6 +384,25 @@ public class OrphanDatasetScanner {
     return (response != null && response.getCount() != null) ? response.getCount() : 0;
   }
 
+  /*
+   * Return the number of images associated to a dataset.
+   */
+  private long imageCount(@NotNull UUID datasetKey) {
+    SearchResponse response = null;
+    try {
+      OccurrenceSearchRequest req = new OccurrenceSearchRequest();
+      req.addDatasetKeyFilter(datasetKey);
+      req.addParameter(OccurrenceSearchParameter.MEDIA_TYPE, MediaType.StillImage);
+      req.setLimit(1);
+      response = occurrenceSearchService.search(req);
+    } catch (ClientHandlerException e) {
+      LOG.error("Unable to retrieve image count for dataset" + datasetKey.toString(), e);
+    } catch (ServiceUnavailableException e) {
+      LOG.error("Unable to retrieve image count for dataset" + datasetKey.toString(), e);
+    }
+    return (response != null && response.getCount() != null) ? response.getCount() : 0;
+  }
+
   /**
    * Checks if dataset should be ignored for consideration as an orphan.
    *
@@ -346,20 +412,32 @@ public class OrphanDatasetScanner {
    * @return true if dataset should be skipped, false otherwise
    */
   private boolean toIgnore(Dataset dataset, Organization organization) {
-    // from Pangaea?
+    // ignore Pangaea
     if (dataset.getPublishingOrganizationKey().equals(UUID.fromString("d5778510-eb28-11da-8629-b8a03c50a862"))) {
       return true;
     }
-    // from the UK?
+    // ignore the UK
     if (organization.getEndorsingNodeKey().equals(UUID.fromString("d897a5b9-35ee-4232-94bd-b0bcaac003c2"))) {
       return true;
     }
-    // from Catalogue of Life?
+    // ignore the Catalogue of Life
     if (dataset.getPublishingOrganizationKey().equals(UUID.fromString("f4ce3c03-7b38-445e-86e6-5f6b04b649d4"))) {
       return true;
     }
-    // from GEO-Tag der Artenvielfalt - 1219 datasets with no crawl history, frozen in time?
+    // ignore GEO-Tag der Artenvielfalt - 1219 datasets with no crawl history, frozen in time
     if (dataset.getPublishingOrganizationKey().equals(UUID.fromString("ef69a030-3940-11dd-b168-b8a03c50a862"))) {
+      return true;
+    }
+    // ignore Plazi - more than 1600 false positives
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("ffb07bec-2d10-492d-9c37-361fe0b79427"))) {
+      return true;
+    }
+    // ignore OBIS
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("ba0670b9-4186-41e6-8e70-f9cb3065551a"))) {
+      return true;
+    }
+    // eBird, because it gets published once a year without fail
+    if (dataset.getKey().equals(UUID.fromString("4fa7b334-ce0d-4e88-aaae-2e0c138d049e"))) {
       return true;
     }
     return false;
