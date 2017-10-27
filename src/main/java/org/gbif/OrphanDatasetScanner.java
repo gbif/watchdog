@@ -65,6 +65,8 @@ public class OrphanDatasetScanner {
   private static final String TSV_EXTENSION = ".tsv";
   private static final String YES = "YES";
   private static final String PNMC = "Participant Node Managers Committee";
+  private static final String FILENAME_2017 = "toRescueIn2017";
+  private static final String FILENAME_2018 = "toRescueIn2018";
   private static final int PAGING_LIMIT = 100;
 
   private final DatasetService datasetService;
@@ -77,7 +79,8 @@ public class OrphanDatasetScanner {
   private final DatasetProcessStatusService statusService;
 
   private Map<String, List<String[]>> orphansByParticipant;
-  private List<String[]> allOrphans;
+  private List<String[]> orphansRescued2017;
+  private List<String[]> orphansRescued2018;
   private final File outputDirectory;
 
   OrphanDatasetScanner(DatasetService datasetService, OrganizationService organizationService, NodeService nodeService,
@@ -93,7 +96,8 @@ public class OrphanDatasetScanner {
     this.occurrenceSearchService = occurrenceSearchService;
     this.statusService = statusService;
     orphansByParticipant = Maps.newHashMap();
-    allOrphans = Lists.newArrayList();
+    orphansRescued2017 = Lists.newArrayList();
+    orphansRescued2018 = Lists.newArrayList();
     outputDirectory = org.gbif.utils.file.FileUtils.createTempDir();
   }
 
@@ -183,7 +187,13 @@ public class OrphanDatasetScanner {
                 mostRecentCrawlDate, String.valueOf(potentialFalsePostitive).toUpperCase());
             String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
             orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
-            allOrphans.add(record.clone());
+
+            // split orphans into two files - to be rescued in 2018 (2nd round), and to be rescued in 2017 (1st round)
+            if (rescueIn2018(organization)) {
+              orphansRescued2018.add(record.clone());
+            } else {
+              orphansRescued2017.add(record.clone());
+            }
           }
         }
       } datasetPage.nextPage();
@@ -193,8 +203,10 @@ public class OrphanDatasetScanner {
 
     // write orphans to file, separated by participant
     writeMapToFiles(orphansByParticipant);
-    // write all orphans to single file
-    writeListToFiles(allOrphans);
+    // write all orphans to be rescued in 2017 to file
+    writeListToFiles(FILENAME_2017, orphansRescued2017);
+    // write all orphans to be rescued in 2018 to file
+    writeListToFiles(FILENAME_2018, orphansRescued2018);
   }
 
   /**
@@ -247,8 +259,8 @@ public class OrphanDatasetScanner {
         // logging below used to generate GitHub markdown table
         System.out.println("| " + p + " | " + datasets + " | " + installations.size() + " | " + numOccurrences + " | "
                            + countryOccurrenceCount + " | " + percentageOccurrencesOrphaned + " | "
-                           + "[View](https://github.com/kbraak/watchdog/blob/master/lists/orphans/" + fileName
-                           + ") / [Download](https://raw.githubusercontent.com/kbraak/watchdog/master/lists/orphans/"
+                           + "[View](https://github.com/gbif/watchdog/blob/master/lists/orphansOct17/" + fileName
+                           + ") / [Download](https://raw.githubusercontent.com/gbif/watchdog/master/lists/orphansOct17/"
                            + fileName + ") |");
       } catch (IOException e) {
         LOG.error("Exception while writing to output file: " + out.getAbsolutePath());
@@ -261,13 +273,15 @@ public class OrphanDatasetScanner {
   /**
    * For each entry in List<String[]>, method writes array of strings to new file.
    * The header and each string in the list is a tab row whose columns correspond to each other.
+   *
+   * @param name name of file to write to
    */
-  private void writeListToFiles(List<String[]> ls) {
+  private void writeListToFiles(@NotNull String name, List<String[]> ls) {
     LOG.info("Writing all orphans to file..");
     Writer writer;
     File out = null;
     try {
-      String fileName = "allOrphans" + TSV_EXTENSION;
+      String fileName =  name + TSV_EXTENSION;
       out = new File(outputDirectory, fileName);
       writer = org.gbif.utils.file.FileUtils.startNewUtf8File(out);
 
@@ -438,6 +452,134 @@ public class OrphanDatasetScanner {
     }
     // eBird, because it gets published once a year without fail
     if (dataset.getKey().equals(UUID.fromString("4fa7b334-ce0d-4e88-aaae-2e0c138d049e"))) {
+      return true;
+    }
+    // ignore Togo, handled by BID
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("c9659a3e-07e9-4fcb-83c6-de8b9009a02e"))) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Checks if dataset should be rescued in second round of adoptions in 2018, to give the Node more time to
+   * investigate their orphans. These are the Nodes that replied during the campaign.
+   *
+   * @param organization organization of candidate orphan dataset
+   *
+   * @return true if dataset should be rescued, false otherwise
+   */
+  private boolean rescueIn2018(Organization organization) {
+    // Taiwan
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("e1b85abc-61f9-430f-ba79-6813dec53a0f"))) {
+      return true;
+    }
+    // Switzerland
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("169eb292-376b-4cc6-8e31-9c2c432de0ad"))) {
+      return true;
+    }
+    // Mexico
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("b324e8e9-9a4c-44fa-8f1a-7f39ea7ab576"))) {
+      return true;
+    }
+    // Japan
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("db5705aa-6a6e-42f1-8942-d77b9f4896ea"))) {
+      return true;
+    }
+    // Poland
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("2618bfdf-e194-4911-a241-80db3107bc51"))) {
+      return true;
+    }
+    // New Zealand
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("4f9fd726-20dd-445e-89a1-8ed93792276f"))) {
+      return true;
+    }
+    // Argentina
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("2426a871-9feb-40a1-96c6-0c593a76b835"))) {
+      return true;
+    }
+    // Brazil
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("cdc9736d-5ff7-4ece-9959-3c744360cdb3"))) {
+      return true;
+    }
+    // Chile
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("a8b16421-d80b-4ef3-8f22-098b01a89255"))) {
+      return true;
+    }
+    // Colombia
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("7e865cba-7c46-417b-ade5-97f2cf5b7be0"))) {
+      return true;
+    }
+    // Israel
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("8cb55387-7802-40e8-86d6-d357a583c596"))) {
+      return true;
+    }
+    // CAS
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("e760dc6f-dd68-474d-ab41-bd3588571793"))) {
+      return true;
+    }
+    // Germany
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("4f6826f2-4ff6-443d-b966-e6913bd24013"))) {
+      return true;
+    }
+    // Sweden
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("a0b3be64-6525-4387-ac67-a499950f92e1"))) {
+      return true;
+    }
+    // France
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("da44cd31-5901-4687-a106-6d1c7734ee3a"))) {
+      return true;
+    }
+    // Denmark
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("4ddd294f-02b7-4359-ac33-0806a9ca9c6b"))) {
+      return true;
+    }
+    // Portugal
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("673f7038-4262-4149-b753-5658a4e912f6"))) {
+      return true;
+    }
+    // Norway
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("4f829580-180d-46a9-9c87-ed8ec959b545"))) {
+      return true;
+    }
+    // Belgium
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("fb11cfe1-ebc3-45af-9159-17d9fddbcdac"))) {
+      return true;
+    }
+    // Netherlands
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("0909d601-bda2-42df-9e63-a6d51847ebce"))) {
+      return true;
+    }
+    // Finland
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("dd514216-5c7c-45f3-910d-797424cb5be6"))) {
+      return true;
+    }
+    // Spain
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("1f94b3ca-9345-4d65-afe2-4bace93aa0fe"))) {
+      return true;
+    }
+    // Participant Node Managers Committee - TODO communication with each individual publisher outstanding
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("7f48e0c8-5c96-49ec-b972-30748e339115"))) {
+      return true;
+    }
+    // Andorra - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("8df8d012-8e64-4c8a-886e-521a3bdfa623"))) {
+      return true;
+    }
+    // India - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("59d15a9b-ba51-43c3-a53f-304fe6732c04"))) {
+      return true;
+    }
+    // Indonesia - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("2ebd91f6-f14f-4375-b525-c011a3774f03"))) {
+      return true;
+    }
+    // Ireland - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("422b00b2-6c94-4bb6-976b-c359916efdb8"))) {
+      return true;
+    }
+    // South Africa - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("7190b835-4e86-4b6e-85c1-19cc6677c250"))) {
       return true;
     }
     return false;
