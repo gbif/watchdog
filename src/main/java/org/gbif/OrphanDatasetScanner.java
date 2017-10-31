@@ -31,6 +31,8 @@ import org.gbif.watchdog.config.WatchdogModule;
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -45,6 +47,7 @@ import javax.validation.constraints.NotNull;
 import com.beust.jcommander.internal.Lists;
 import com.beust.jcommander.internal.Maps;
 import com.beust.jcommander.internal.Sets;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Ordering;
 import com.google.inject.Guice;
@@ -68,6 +71,8 @@ public class OrphanDatasetScanner {
   private static final String FILENAME_2017 = "toRescueIn2017";
   private static final String FILENAME_2018 = "toRescueIn2018";
   private static final int PAGING_LIMIT = 100;
+  // timeout in milliseconds for both the connection timeout and the response read timeout
+  private static final int TIMEOUT_MILLIS = 500;
 
   private final DatasetService datasetService;
   private final OrganizationService organizationService;
@@ -320,7 +325,7 @@ public class OrphanDatasetScanner {
         "installationKey", "installationType", "organisationKey", "organisationTitle", "participantTitle",
         "countryOfParticipant", "gbifRegistrationDate", "mostRecentCrawlEndpointType", "mostRecentCrawlEndpointUri",
         "mostRecentCrawlDate", "mostRecentCrawlStatus", "potentialFalsePositive?(YES/NO)","orphaned?(YES/NO)",
-        "numImages"};
+        "numImages", "online?(YES/NO)"};
     return tabRow(header);
   }
 
@@ -363,12 +368,18 @@ public class OrphanDatasetScanner {
     // how many images?
     long imageCount = imageCount(dataset.getKey());
 
+    // URL responds successfully?
+    boolean online = false;
+    if (mostRecentCrawlEndpointUri != null) {
+      online = pingURL(mostRecentCrawlEndpointUri);
+    }
+
     return new String[] {dataset.getTitle(), dataset.getKey().toString(), dataset.getType().toString(),
       String.valueOf(hasEndpoints), String.valueOf(numOccurrences), String.valueOf(numNameUsages),
       installation.getKey().toString(), installation.getType().toString(), organization.getKey().toString(),
       organization.getTitle(), node.getParticipantTitle(), country.getTitle(), registered, mostRecentCrawlEndpointType,
       mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus, potentialFalsePostitive, YES,
-      String.valueOf(imageCount)};
+      String.valueOf(imageCount), String.valueOf(online).toUpperCase()};
   }
 
   /**
@@ -456,6 +467,10 @@ public class OrphanDatasetScanner {
     }
     // ignore Togo, handled by BID
     if (organization.getEndorsingNodeKey().equals(UUID.fromString("c9659a3e-07e9-4fcb-83c6-de8b9009a02e"))) {
+      return true;
+    }
+    // ignore GBIFS
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("02c40d2a-1cba-4633-90b7-e36e5e97aba8"))) {
       return true;
     }
     return false;
@@ -583,6 +598,32 @@ public class OrphanDatasetScanner {
       return true;
     }
     return false;
+  }
+
+
+  /**
+   * Method derived from https://stackoverflow.com/a/3584332 and tested in OrphanDatasetScannerTest.
+   * Pings a HTTP URL with HEAD request and returns <code>true</code> if the response code is in 200-399 range.
+   *
+   * @param url     The HTTP URL to be pinged
+   *
+   * @return <code>true</code> if the given HTTP URL has returned response code 200-399 on a HEAD request within the
+   * given timeout, <code>false</code> otherwise
+   */
+  @VisibleForTesting
+  public static boolean pingURL(String url) {
+    url = url.replaceFirst("^https", "http"); // Otherwise an exception may be thrown on invalid SSL certificates.
+    try {
+      HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+      connection.setConnectTimeout(TIMEOUT_MILLIS);
+      connection.setReadTimeout(TIMEOUT_MILLIS);
+      connection.setRequestMethod("HEAD");
+      int responseCode = connection.getResponseCode();
+      connection.disconnect();
+      return (200 <= responseCode && responseCode <= 399);
+    } catch (IOException exception) {
+      return false;
+    }
   }
 
   /**

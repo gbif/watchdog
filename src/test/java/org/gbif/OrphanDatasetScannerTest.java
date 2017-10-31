@@ -1,34 +1,26 @@
 package org.gbif;
 
-import junit.framework.Test;
-import junit.framework.TestCase;
-import junit.framework.TestSuite;
+import java.net.MalformedURLException;
+
+import org.junit.Ignore;
+
+import static org.junit.Assert.assertEquals;
 
 /**
- * Unit test for simple OrphanDatasetScanner.
+ * Unit tests for simple OrphanDatasetScanner.
  */
-public class OrphanDatasetScannerTest extends TestCase {
+public class OrphanDatasetScannerTest {
 
-  /**
-   * Create the test case
-   *
-   * @param testName name of the test case
-   */
-  public OrphanDatasetScannerTest(String testName) {
-    super(testName);
-  }
+  @Ignore
+  public void testPingURL() throws MalformedURLException {
+    assertEquals(true, OrphanDatasetScanner.pingURL("http://ipt.biologi.lipi.go.id/archive.do?r=hb-rcb"));
+    assertEquals(true, OrphanDatasetScanner.pingURL("http://choreutidae.lifedesks.org/classification.tar.gz")); // redirects and is not downloadable!
+    assertEquals(true, OrphanDatasetScanner.pingURL("https://nas.er.usgs.gov/ipt/archive.do?r=nas")); // 301 response code (moved permanently but downloadable)
 
-  /**
-   * @return the suite of tests being tested
-   */
-  public static Test suite() {
-    return new TestSuite(OrphanDatasetScannerTest.class);
-  }
-
-  /**
-   * Rigourous Test :-)
-   */
-  public void testApp() {
-    assertTrue(true);
+    assertEquals(false, OrphanDatasetScanner.pingURL("http://rs.gbif.org/datasets/protected/fauna_europaea.zip"));
+    assertEquals(false, OrphanDatasetScanner.pingURL("http://www.icimod.org:8080/hkh-bif/archive.do?r=toorsa_strict_nature_reserve"));
+    assertEquals(false, OrphanDatasetScanner.pingURL("http://ctap.inhs.uiuc.edu/dmitriev/Export/DwCArchive_Delt.zip"));
+    assertEquals(false, OrphanDatasetScanner.pingURL("http://digir.sunsite.utk.edu/digir/www/DiGIR.php"));
+    assertEquals(false, OrphanDatasetScanner.pingURL("http://gnub.org/data/GNUB_DwC.zip"));
   }
 }
