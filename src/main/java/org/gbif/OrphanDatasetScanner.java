@@ -612,6 +612,27 @@ public class OrphanDatasetScanner {
    */
   @VisibleForTesting
   public static boolean pingURL(String url) {
+    // Endpoints not actually online, but nevertheless give a successful response:
+    // http://bijh.zrc-sazu.si/DIGIR/digir.php Digir Installation from Slovenia 5ff785c2-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://bijh.zrc-sazu.si/DIGIR/digir.php")) {
+      return false;
+    }
+    // http://choreutidae.lifedesks.org/classification.tar.gz HTTP installation from the USA dd247de0-f003-4d3e-b090-8b32c2c243da
+    if (url.equalsIgnoreCase("http://choreutidae.lifedesks.org/classification.tar.gz")) {
+      return false;
+    }
+    // http://data.aad.gov.au/digir/digir.php DiGIR installation from Australia 5ffda196-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://data.aad.gov.au/digir/digir.php")) {
+      return false;
+    }
+    // http://w2.scarmarbin.be/digir2/digir.php DiGIR installation from ANTABIF 601e20f6-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://w2.scarmarbin.be/digir2/digir.php")) {
+      return false;
+    }
+    // http://www.ots.ac.cr/herbarium/gbif/dwca-herbariumlc.zip HTTP installation from Costa Rica 9976bbce-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://www.ots.ac.cr/herbarium/gbif/dwca-herbariumlc.zip")) {
+      return false;
+    }
     url = url.replaceFirst("^https", "http"); // Otherwise an exception may be thrown on invalid SSL certificates.
     try {
       HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
