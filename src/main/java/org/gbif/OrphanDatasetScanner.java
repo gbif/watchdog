@@ -68,6 +68,7 @@ public class OrphanDatasetScanner {
   private static final String TSV_EXTENSION = ".tsv";
   private static final String YES = "YES";
   private static final String PNMC = "Participant Node Managers Committee";
+  private static final String FILENAME_INVALID = "onlineButInvalid";
   private static final String FILENAME_2017 = "toRescueIn2017";
   private static final String FILENAME_2018 = "toRescueIn2018";
   private static final int PAGING_LIMIT = 100;
@@ -86,6 +87,7 @@ public class OrphanDatasetScanner {
   private Map<String, List<String[]>> orphansByParticipant;
   private List<String[]> orphansRescued2017;
   private List<String[]> orphansRescued2018;
+  private List<String[]> nonOrphansJustInvalid;
   private final File outputDirectory;
 
   OrphanDatasetScanner(DatasetService datasetService, OrganizationService organizationService, NodeService nodeService,
@@ -103,6 +105,7 @@ public class OrphanDatasetScanner {
     orphansByParticipant = Maps.newHashMap();
     orphansRescued2017 = Lists.newArrayList();
     orphansRescued2018 = Lists.newArrayList();
+    nonOrphansJustInvalid = Lists.newArrayList();
     outputDirectory = org.gbif.utils.file.FileUtils.createTempDir();
   }
 
@@ -183,21 +186,27 @@ public class OrphanDatasetScanner {
             statusPage.nextPage();
           } while (statusResults != null && !statusResults.isEndOfRecords());
 
-          // Warning: excluding false positives until phantom crawl issue gets fixed: https://github.com/gbif/crawler/issues/3
+          // Warning: excluding false positives due to phantom crawl issue until it gets fixed: https://github.com/gbif/crawler/issues/3
           if (orphaned && !potentialFalsePostitive) {
             orphans++;
             Node node = nodeService.get(organization.getEndorsingNodeKey());
             String[] record =
               getRecord(d, organization, mostRecentCrawlEndpointType, mostRecentCrawlEndpointUri, mostRecentCrawlStatus,
                 mostRecentCrawlDate, String.valueOf(potentialFalsePostitive).toUpperCase());
-            String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
-            orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
 
-            // split orphans into two files - to be rescued in 2018 (2nd round), and to be rescued in 2017 (1st round)
-            if (rescueIn2018(organization)) {
-              orphansRescued2018.add(record.clone());
+            // Warning: excluding false positives that are online but not indexed because they are invalid! Note that fixing https://github.com/gbif/crawler/issues/9 would help discover these.
+            boolean online = Boolean.valueOf(record[20]); // corresponds to column "online?"
+            if (online) {
+              nonOrphansJustInvalid.add(record);
             } else {
-              orphansRescued2017.add(record.clone());
+              String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
+              orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
+              // split orphans into two files - to be rescued in 2018 (2nd round), and to be rescued in 2017 (1st round)
+              if (rescueIn2018(organization)) {
+                orphansRescued2018.add(record.clone());
+              } else {
+                orphansRescued2017.add(record.clone());
+              }
             }
           }
         }
@@ -206,6 +215,8 @@ public class OrphanDatasetScanner {
     LOG.info("Total # of datasets: " + datasets);
     LOG.info("Total # of orphaned datasets: " + orphans);
 
+    // write false positives that are online but invalid to file, to facilitate Jan following up on them
+    writeListToFiles(FILENAME_INVALID, nonOrphansJustInvalid);
     // write orphans to file, separated by participant
     writeMapToFiles(orphansByParticipant);
     // write all orphans to be rescued in 2017 to file
@@ -324,8 +335,8 @@ public class OrphanDatasetScanner {
       new String[] {"datasetTitle", "datasetKey", "datasetType", "hasEndpoints", "numOccurrences", "numNameUsages",
         "installationKey", "installationType", "organisationKey", "organisationTitle", "participantTitle",
         "countryOfParticipant", "gbifRegistrationDate", "mostRecentCrawlEndpointType", "mostRecentCrawlEndpointUri",
-        "mostRecentCrawlDate", "mostRecentCrawlStatus", "potentialFalsePositive?(YES/NO)","orphaned?(YES/NO)",
-        "numImages", "online?(YES/NO)"};
+        "mostRecentCrawlDate", "mostRecentCrawlStatus", "potentialFalsePositive?","orphaned?",
+        "numImages", "online?"};
     return tabRow(header);
   }
 
@@ -631,6 +642,46 @@ public class OrphanDatasetScanner {
     }
     // http://www.ots.ac.cr/herbarium/gbif/dwca-herbariumlc.zip HTTP installation from Costa Rica 9976bbce-f762-11e1-a439-00145eb45e9a
     if (url.equalsIgnoreCase("http://www.ots.ac.cr/herbarium/gbif/dwca-herbariumlc.zip")) {
+      return false;
+    }
+    // http://acoi.ci.uc.pt/digir/www/DiGIR.php DiGIR installation from Portugal 5ff54d98-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://acoi.ci.uc.pt/digir/www/DiGIR.php")) {
+      return false;
+    }
+    // http://dl.dropbox.com/u/523458/Dyntaxa/Archive.zip HTTP installation from Sweden 995f8ae4-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://dl.dropbox.com/u/523458/Dyntaxa/Archive.zip")) {
+      return false;
+    }
+    // http://pensoft.net/dwc/bdj/checklist_* HTTP installation from BDJ d5b61ace-f25c-43bd-9dd0-03486850f90b
+    if (url.startsWith("http://pensoft.net/dwc/bdj/checklist")) {
+      return false;
+    }
+    // http://sammlung.pal.uni-erlangen.de/biocase/pywrapper.cgi?dsa=collectionpalaeobiology BioCASE installation from Germany 38290c67-22d0-4582-b288-641c29e913a2
+    if (url.equalsIgnoreCase("http://sammlung.pal.uni-erlangen.de/biocase/pywrapper.cgi?dsa=collectionpalaeobiology")) {
+      return false;
+    }
+    // http://sammlung.pal.uni-erlangen.de/biocase/pywrapper.cgi?dsa=herbariumerlangense BioCASE installation from Germany 38290c67-22d0-4582-b288-641c29e913a2
+    if (url.equalsIgnoreCase("http://sammlung.pal.uni-erlangen.de/biocase/pywrapper.cgi?dsa=herbariumerlangense")) {
+      return false;
+    }
+    // http://www.sib.gov.ar/tapirlink-0.7.0/www/tapir.php/APN-CHORDATA TAPIR installation from Argentina 6064fb16-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://www.sib.gov.ar/tapirlink-0.7.0/www/tapir.php/APN-CHORDATA")) {
+      return false;
+    }
+    // http://www.sib.gov.ar/tapirlink-0.7.0/www/tapir.php/APN-DOCUMENTOS TAPIR installation from Argentina 6064fb16-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://www.sib.gov.ar/tapirlink-0.7.0/www/tapir.php/APN-DOCUMENTOS")) {
+      return false;
+    }
+    // http://www.gbif.org.nz/tapirlink/tapir.php/NZBRN TAPIR installation from New Zealand that redirects to GBIF.org
+    if (url.equalsIgnoreCase("http://www.gbif.org.nz/tapirlink/tapir.php/NZBRN")) {
+      return false;
+    }
+    // https://herbarium.biology.colostate.edu/digir/DiGIR.php DiGIR installation from US 600b4684-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("https://herbarium.biology.colostate.edu/digir/DiGIR.php")) {
+      return false;
+    }
+    // http://diatoms.lifedesks.org/classification.tar.gz HTTP installation from US
+    if (url.equalsIgnoreCase("http://diatoms.lifedesks.org/classification.tar.gz")) {
       return false;
     }
     url = url.replaceFirst("^https", "http"); // Otherwise an exception may be thrown on invalid SSL certificates.
