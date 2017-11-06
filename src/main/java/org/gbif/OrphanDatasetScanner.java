@@ -196,9 +196,16 @@ public class OrphanDatasetScanner {
 
             // Warning: excluding false positives that are online but not indexed because they are invalid! Note that fixing https://github.com/gbif/crawler/issues/9 would help discover these.
             boolean online = Boolean.valueOf(record[20]); // corresponds to column "online?"
+            int numOccurrences = Integer.valueOf(record[4]);
+            int numUsages = Integer.valueOf(record[5]);
             if (online) {
               nonOrphansJustInvalid.add(record);
-            } else {
+            }
+            // Warning: excluding datasets that are offline with 0 records (0 occurrences or 0 name usages)
+            else if (numOccurrences == 0 && numUsages == 0) {
+              LOG.warn("Excluding dataset with 0 records: " + record[1]);
+            }
+            else {
               String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
               orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
               // split orphans into two files - to be rescued in 2018 (2nd round), and to be rescued in 2017 (1st round)
@@ -602,10 +609,6 @@ public class OrphanDatasetScanner {
     }
     // Ireland - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
     if (organization.getEndorsingNodeKey().equals(UUID.fromString("422b00b2-6c94-4bb6-976b-c359916efdb8"))) {
-      return true;
-    }
-    // South Africa - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("7190b835-4e86-4b6e-85c1-19cc6677c250"))) {
       return true;
     }
     return false;
