@@ -1,39 +1,5 @@
 package org.gbif;
 
-import org.gbif.api.model.occurrence.Download;
-import org.gbif.api.model.occurrence.DownloadFormat;
-import org.gbif.api.model.occurrence.DownloadRequest;
-import org.gbif.api.model.occurrence.predicate.EqualsPredicate;
-import org.gbif.api.model.occurrence.search.OccurrenceSearchParameter;
-import org.gbif.api.model.registry.Dataset;
-import org.gbif.api.model.registry.Organization;
-import org.gbif.api.service.occurrence.DownloadRequestService;
-import org.gbif.api.service.registry.DatasetService;
-import org.gbif.api.service.registry.OccurrenceDownloadService;
-import org.gbif.api.service.registry.OrganizationService;
-import org.gbif.metadata.eml.Agent;
-import org.gbif.metadata.eml.Eml;
-import org.gbif.metadata.eml.EmlFactory;
-import org.gbif.metadata.eml.EmlWriter;
-import org.gbif.metadata.eml.PhysicalData;
-import org.gbif.metadata.eml.UserId;
-import org.gbif.utils.HttpUtil;
-import org.gbif.utils.file.CompressionUtil;
-import org.gbif.watchdog.config.WatchdogModule;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.StringWriter;
-import java.io.Writer;
-import java.text.ParseException;
-import java.util.Arrays;
-import java.util.ListIterator;
-import java.util.Map;
-import java.util.UUID;
-import javax.xml.parsers.ParserConfigurationException;
-
 import com.beust.jcommander.internal.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
@@ -47,9 +13,31 @@ import freemarker.template.TemplateException;
 import org.apache.commons.io.FileUtils;
 import org.apache.http.StatusLine;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.gbif.api.model.occurrence.Download;
+import org.gbif.api.model.occurrence.DownloadFormat;
+import org.gbif.api.model.occurrence.DownloadRequest;
+import org.gbif.api.model.occurrence.predicate.EqualsPredicate;
+import org.gbif.api.model.occurrence.search.OccurrenceSearchParameter;
+import org.gbif.api.model.registry.Comment;
+import org.gbif.api.model.registry.Dataset;
+import org.gbif.api.model.registry.Organization;
+import org.gbif.api.service.occurrence.DownloadRequestService;
+import org.gbif.api.service.registry.DatasetService;
+import org.gbif.api.service.registry.OccurrenceDownloadService;
+import org.gbif.api.service.registry.OrganizationService;
+import org.gbif.metadata.eml.*;
+import org.gbif.utils.HttpUtil;
+import org.gbif.utils.file.CompressionUtil;
+import org.gbif.watchdog.config.WatchdogModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
+
+import javax.xml.parsers.ParserConfigurationException;
+import java.io.*;
+import java.nio.charset.Charset;
+import java.text.ParseException;
+import java.util.*;
 
 /**
  * Class rescues orphan datasets by downloading them from GBIF.org in DwC-A format.
@@ -65,7 +53,7 @@ public class DatasetRescuer {
   private static final String GBIF_DOWNLOAD_EML = "metadata.xml";
   private static final String GBIF_DOWNLOAD_VERBATIM = "verbatim.txt";
   private static final String GBIF_DOWNLOAD_NAME = "GBIF Occurrence Download";
-  private static final String RESCUED_DISCLAIMER = "Note: this dataset was previously orphaned. It has been rescued by 1) scraping it from the GBIF.org index (see GBIF Download in External Data) and 2) republishing it on this IPT data hosting centre as version 1.0.";
+  private static final String RESCUED_DISCLAIMER = "Note: this dataset was previously orphaned. It has been rescued by ① extracting it from the GBIF.org index (see GBIF Download in External Data) and ② republishing it on this IPT data hosting centre as version 1.0.";
 
   private static final String RESCUED_EML = "eml.xml";
   private static final String RESCUED_OCCURRENCE = "occurrence.txt";
@@ -90,6 +78,9 @@ public class DatasetRescuer {
     this.occurrenceDownloadService = occurrenceDownloadService;
     this.datasetService = datasetService;
     this.organizationService = organizationService;
+
+    FTL.setTimeZone(TimeZone.getTimeZone("GMT"));
+    FTL.setDateTimeFormat("yyyy-MM-dd HH:mm:ss zzz");
   }
 
   /**
@@ -100,20 +91,38 @@ public class DatasetRescuer {
   private void rescue(String datasetKey)
     throws IOException, ParserConfigurationException, SAXException, TemplateException, NoSuchFieldException,
     InterruptedException {
-    EqualsPredicate p = new EqualsPredicate(OccurrenceSearchParameter.DATASET_KEY, datasetKey);
-    DownloadRequest request = new DownloadRequest(p, "Kyle Braak", Sets.newHashSet(), true, DownloadFormat.DWCA);
-    //String downloadKey = downloadRequestService.create(request); // e.g. 0011461-170714134226665
-    String downloadKey = "0011461-170714134226665";
 
-    // retrieves the download file if it is available
+    // Katia Cezón GBIF Spain
+    Agent rescuer = new Agent();
+    rescuer.setFirstName("Katia");
+    rescuer.setLastName("Cezón");
+    rescuer.setEmail("katia@gbif.es");
+    rescuer.setOrganisation("GBIF Spain");
 
-    //Download downloadMetadata = occurrenceDownloadService.get(downloadKey);
-    Download downloadMetadata = null;
+    String downloadKey;
+
+    // Store the download key, so the download isn't repeated if this process is rerun.
+    File downloadIdFile = new File(datasetKey+".download");
+    if (downloadIdFile.exists()) {
+      downloadKey = Files.readFirstLine(downloadIdFile, Charset.defaultCharset());
+    }
+    else {
+      EqualsPredicate p = new EqualsPredicate(OccurrenceSearchParameter.DATASET_KEY, datasetKey);
+      DownloadRequest request = new DownloadRequest(p, "MattBlissett", Sets.newHashSet(), true, DownloadFormat.DWCA);
+      downloadKey = downloadRequestService.create(request);
+      Files.write(downloadKey, downloadIdFile, Charset.defaultCharset());
+
+      Comment datasetComment = new Comment();
+      datasetComment.setContent("Identified as orphaned and exported for rescue.");
+      datasetService.addComment(UUID.fromString(datasetKey), datasetComment);
+    }
+
+    Download downloadMetadata;
 
     // proceed after download succeeds...
     do {
-      Thread.sleep(10000);
       LOG.info("Waiting for download [" + downloadKey + "] to complete...");
+      Thread.sleep(500);
       downloadMetadata = occurrenceDownloadService.get(downloadKey); // try again
     } while (downloadMetadata == null || !downloadMetadata.isAvailable());
 
@@ -127,8 +136,7 @@ public class DatasetRescuer {
     // retrieve dataset metadata XML file from GBIF cache, e.g. http://api.gbif.org/v1/dataset/98333cb6-6c15-4add-aa0e-b322bf1500ba/document
     Eml eml = EmlFactory.build(datasetService.getMetadataDocument(UUID.fromString(datasetKey)));
 
-    DefaultHttpClient httpClient =
-      HttpUtil.newMultithreadedClient(CONNECTION_TIMEOUT_MSEC, MAX_CONNECTIONS, MAX_PER_ROUTE);
+    DefaultHttpClient httpClient = HttpUtil.newMultithreadedClient(CONNECTION_TIMEOUT_MSEC, MAX_CONNECTIONS, MAX_PER_ROUTE);
     HttpUtil httpUtil = new HttpUtil(httpClient);
 
     File tmpDownloadDir = Files.createTempDir();
@@ -151,23 +159,6 @@ public class DatasetRescuer {
       throw new NoSuchFieldException("License must always be set!");
     }
 
-    // Kyle Braak GBIFS
-    Agent rescuer1 = new Agent();
-    rescuer1.setFirstName("Kyle");
-    rescuer1.setLastName("Braak");
-    rescuer1.setEmail("helpdesk@gbif.org");
-    rescuer1.setOrganisation("GBIFS");
-    rescuer1.setRole("processor");
-    rescuer1.addUserId(new UserId("http://orcid.org/", "0000-0002-3696-3496"));
-
-    // Katia Cezón GBIF Spain
-    Agent rescuer2 = new Agent();
-    rescuer2.setFirstName("Katia");
-    rescuer2.setLastName("Cezón");
-    rescuer2.setEmail("katia@gbif.es");
-    rescuer2.setOrganisation("GBIF Spain");
-    rescuer2.addUserId(new UserId("http://orcid.org/", "0000-0002-3696-3496"));
-
     // publishing organisation
     Agent publishingOrg = new Agent();
     Dataset dataset = datasetService.get(UUID.fromString(datasetKey));
@@ -175,13 +166,13 @@ public class DatasetRescuer {
     publishingOrg.setOrganisation(organization.getTitle());
 
     // add up-to-date point of contact thereby also fulfilling minimum requirement
-    eml.setContacts(Arrays.asList(rescuer2));
+    eml.setContacts(Arrays.asList(rescuer));
 
     // add up-to-date creator thereby also fulfilling minimum requirement in order of priority high to low
-    eml.setCreators(Arrays.asList(publishingOrg, rescuer2, rescuer1));
+    eml.setCreators(Arrays.asList(publishingOrg, rescuer));
 
     // add up-to-date metadata provider thereby also fulfilling minimum requirement
-    eml.setMetadataProviders(Arrays.asList(rescuer1));
+    eml.setMetadataProviders(Arrays.asList(rescuer));
 
     // add external link to GBIF download (DwC-A format) that was used to rescue dataset - this must be preserved forever
     if (!emlGbif.getPhysicalData().isEmpty()) {
@@ -202,6 +193,20 @@ public class DatasetRescuer {
     // reset version to 1.0
     eml.setEmlVersion(1, 0);
 
+    // Fix paragraphs in description.
+    LOG.info("Description is {}, {}", eml.getDescription().size(), eml.getDescription());
+    if (eml.getDescription().size() == 1) {
+      String temp = eml.getDescription().get(0);
+      eml.getDescription().clear();
+      String[] paragraphs = temp.split("</?p>");
+      for (String pp : paragraphs) {
+        if (pp.trim().length() > 0) {
+          eml.getDescription().add(pp.trim());
+        }
+      }
+    } else {
+    }
+
     // add paragraph to description, explaining that this dataset has been rescued by scraping it from GBIF.org
     eml.getDescription().add(RESCUED_DISCLAIMER);
 
@@ -213,7 +218,8 @@ public class DatasetRescuer {
     EmlWriter.writeEmlFile(updatedEml, eml);
 
     // retrieve verbatim.txt file, and copy to DwC-A folder
-    FileUtils.copyFile(new File(tmpDecompressDir, GBIF_DOWNLOAD_VERBATIM), new File(dwcaFolder, RESCUED_OCCURRENCE));
+    File rescuedOccurrence = new File(dwcaFolder, RESCUED_OCCURRENCE);
+    FileUtils.copyFile(new File(tmpDecompressDir, GBIF_DOWNLOAD_VERBATIM), rescuedOccurrence);
 
     // retrieve meta.xml file, and copy to DwC-A folder
     File rescuedMeta = new File(dwcaFolder, RESCUED_META);
@@ -222,14 +228,14 @@ public class DatasetRescuer {
     // upload to IPT
 
     // make IPT resource directory
-    File iptResourceDir = new File("/tmp", datasetKey);
+    File iptResourceDir = new File("./", datasetKey);
     iptResourceDir.mkdir();
 
     // ensure publishing organisation set (prerequisite being the organisation and user kbraak@gbif.org must be added to the IPT before it can be loaded)
     // ensure auto-generation of citation turned on
     // make its visibility registered by default
     File resourceXml = new File(iptResourceDir, IPT_RESOURCE);
-    writeIptResourceFile(resourceXml, dataset, downloadMetadata);
+    writeIptResourceFile(resourceXml, dataset, downloadMetadata, rescuer, rescuedOccurrence.length());
 
     // make sources folder in IPT resource folder
     File sources = new File(iptResourceDir, IPT_SOURCES);
@@ -253,14 +259,22 @@ public class DatasetRescuer {
     LOG.info("IPT Resource folder: " + iptResourceDir.getAbsolutePath());
   }
 
-  public static void main(String[] args)
+  public static void main(String... args)
     throws ParseException, IOException, ParserConfigurationException, SAXException, TemplateException,
     NoSuchFieldException, InterruptedException {
     Injector injector = Guice.createInjector(new WatchdogModule());
     DatasetRescuer rescuer = new DatasetRescuer(injector.getInstance(DownloadRequestService.class),
       injector.getInstance(OccurrenceDownloadService.class), injector.getInstance(DatasetService.class),
       injector.getInstance(OrganizationService.class));
-    rescuer.rescue("81119a40-f762-11e1-a439-00145eb45e9a");
+
+    if (args.length < 1) {
+      System.err.println("Give dataset keys as argument");
+      System.exit(1);
+    }
+
+    for (String datasetKey : args) {
+      rescuer.rescue(datasetKey);
+    }
   }
 
   /**
@@ -270,10 +284,12 @@ public class DatasetRescuer {
    * @param dataset  the GBIF Dataset object
    * @param download the GBIF Download object
    */
-  private void writeIptResourceFile(File f, Dataset dataset, Download download) throws IOException, TemplateException {
+  private void writeIptResourceFile(File f, Dataset dataset, Download download, Agent rescuer, long occurrenceFileSize) throws IOException, TemplateException {
     Map<String, Object> map = Maps.newHashMap();
     map.put("dataset", dataset);
     map.put("download", download);
+    map.put("rescuer", rescuer);
+    map.put("occurrenceFileSize", occurrenceFileSize);
     writeFile(f, IPT_RESOURCE_TEMPLATE, map);
   }
 
