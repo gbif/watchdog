@@ -20,7 +20,7 @@ public class WatchdogModule extends AbstractModule {
       Properties properties = PropertiesUtil.loadProperties(APPLICATION_PROPERTIES);
 
       // configure GBIF API authentication
-      install(new SingleUserAuthModule(properties.getProperty("gbif.user"), properties.getProperty("gbif.password"));
+      install(new SingleUserAuthModule(properties.getProperty("gbif.user"), properties.getProperty("gbif.password")));
 
       // provide GBIF.org authentication
       install(new HttpSessionModule());

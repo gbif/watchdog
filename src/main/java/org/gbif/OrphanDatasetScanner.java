@@ -124,7 +124,7 @@ public class OrphanDatasetScanner {
     do {
       datasetResults = datasetService.list(datasetPage);
       for (Dataset d : datasetResults.getResults()) {
-        if(datasets % 1000 == 0) {
+        if (datasets % 1000 == 0) {
           LOG.info("Iterated over " + datasets + " datasets");
         }
         datasets++;

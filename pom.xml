@@ -17,22 +17,20 @@
   <url>http://maven.apache.org</url>
 
   <properties>
-    <jdkLevel>1.8</jdkLevel>
-    <guice.version>4.0</guice.version>
-    <junit.version>4.12</junit.version>
-    <occurrence-ws-client.version>0.61</occurrence-ws-client.version>
-    <registry-ws-client.version>2.66</registry-ws-client.version>
-    <metrics-ws-client.version>0.26</metrics-ws-client.version>
-    <checklistbank-ws-client.version>2.53</checklistbank-ws-client.version>
-    <slf4j.version>1.7.21</slf4j.version>
-    <logback.version>1.1.7</logback.version>
-    <servletapi.version>3.0.1</servletapi.version>
-    <occurrence-ws-client.version>0.61</occurrence-ws-client.version>
     <gbif-common.version>0.32</gbif-common.version>
     <gbif-httputils.version>0.10</gbif-httputils.version>
-    <httpclient.version>4.3.6</httpclient.version>
-    <guava.version>18.0</guava.version>
     <gbif-metadata-profile.version>1.1.1</gbif-metadata-profile.version>
+    <occurrence-ws-client.version>0.79</occurrence-ws-client.version>
+    <registry-ws-client.version>2.78</registry-ws-client.version>
+
+    <guava.version>18.0</guava.version>
+    <guice.version>4.0</guice.version>
+    <httpclient.version>4.3.6</httpclient.version>
+    <jdkLevel>1.8</jdkLevel>
+    <junit.version>4.12</junit.version>
+    <logback.version>1.1.7</logback.version>
+    <servletapi.version>3.0.1</servletapi.version>
+    <slf4j.version>1.7.21</slf4j.version>
   </properties>
 
   <repositories>
@@ -45,6 +43,11 @@
   <dependencies>
     <!-- GBIF -->
     <dependency>
+      <groupId>org.gbif.registry</groupId>
+      <artifactId>registry-ws-client</artifactId>
+      <version>${registry-ws-client.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.gbif</groupId>
       <artifactId>gbif-common</artifactId>
       <version>${gbif-common.version}</version>
@@ -53,21 +56,6 @@
       <groupId>org.gbif.occurrence</groupId>
       <artifactId>occurrence-ws-client</artifactId>
       <version>${occurrence-ws-client.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.gbif.registry</groupId>
-      <artifactId>registry-ws-client</artifactId>
-      <version>${registry-ws-client.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.gbif.metrics</groupId>
-      <artifactId>metrics-ws-client</artifactId>
-      <version>${metrics-ws-client.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.gbif.checklistbank</groupId>
-      <artifactId>checklistbank-ws-client</artifactId>
-      <version>${checklistbank-ws-client.version}</version>
     </dependency>
     <dependency>
       <groupId>org.gbif</groupId>
