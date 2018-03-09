@@ -15,15 +15,14 @@ import org.gbif.api.model.occurrence.DownloadFormat;
 import org.gbif.api.model.occurrence.DownloadRequest;
 import org.gbif.api.model.occurrence.predicate.EqualsPredicate;
 import org.gbif.api.model.occurrence.search.OccurrenceSearchParameter;
-import org.gbif.api.model.registry.Dataset;
-import org.gbif.api.model.registry.Endpoint;
-import org.gbif.api.model.registry.MachineTag;
-import org.gbif.api.model.registry.Organization;
+import org.gbif.api.model.registry.*;
 import org.gbif.api.service.occurrence.DownloadRequestService;
 import org.gbif.api.service.registry.DatasetService;
+import org.gbif.api.service.registry.NodeService;
 import org.gbif.api.service.registry.OccurrenceDownloadService;
 import org.gbif.api.service.registry.OrganizationService;
 import org.gbif.api.vocabulary.EndpointType;
+import org.gbif.api.vocabulary.NodeType;
 import org.gbif.metadata.eml.*;
 import org.gbif.utils.HttpUtil;
 import org.gbif.utils.file.CompressionUtil;
@@ -78,13 +77,15 @@ public class DatasetRescuer {
   OccurrenceDownloadService occurrenceDownloadService;
   DatasetService datasetService;
   OrganizationService organizationService;
+  NodeService nodeService;
 
   DatasetRescuer(DownloadRequestService occurrenceDownloadWsClient, OccurrenceDownloadService occurrenceDownloadService,
-    DatasetService datasetService, OrganizationService organizationService) throws IOException {
+    DatasetService datasetService, OrganizationService organizationService, NodeService nodeService) throws IOException {
     this.downloadRequestService = occurrenceDownloadWsClient;
     this.occurrenceDownloadService = occurrenceDownloadService;
     this.datasetService = datasetService;
     this.organizationService = organizationService;
+    this.nodeService = nodeService;
 
     FTL.setTimeZone(TimeZone.getTimeZone("GMT"));
     FTL.setDateTimeFormat("yyyy-MM-dd HH:mm:ss zzz");
@@ -108,13 +109,7 @@ public class DatasetRescuer {
 
     Agent rescuer = new Agent();
 
-    if (mode == RESCUE) {
-      rescuer.setFirstName("Matthew");
-      rescuer.setLastName("Blissett");
-      rescuer.setEmail("mblissett@gbif.org");
-      rescuer.setOrganisation("GBIF Secretariat");
-    }
-    else {
+    if (mode == IPT_EXPORT) {
       // Katia Cezón GBIF Spain
       rescuer.setFirstName("Katia");
       rescuer.setLastName("Cezón");
@@ -125,6 +120,7 @@ public class DatasetRescuer {
     UUID uuid = UUID.fromString(datasetKey);
     Dataset dataset = datasetService.get(uuid);
     Organization organization = organizationService.get(dataset.getPublishingOrganizationKey());
+    Node node = nodeService.get(organization.getEndorsingNodeKey());
 
     // Store the download key, so the download isn't repeated if this process is rerun.
     String downloadKey = datasetService.listMachineTags(uuid).stream()
@@ -166,7 +162,7 @@ public class DatasetRescuer {
     // proceed after download succeeds...
     do {
       LOG.info("Waiting for download [" + downloadKey + "] to complete...");
-      Thread.sleep(500);
+      Thread.sleep(2500);
       downloadMetadata = occurrenceDownloadService.get(downloadKey); // try again
     } while (downloadMetadata == null || !downloadMetadata.isAvailable());
 
@@ -241,10 +237,14 @@ public class DatasetRescuer {
 
     // wipe resource logo, to avoid calling broken links, if it is broken
     if (eml.getLogoUrl() != null) {
-      HttpUtil.Response logoResponse = httpUtil.get(eml.getLogoUrl());
-      if (logoResponse.getStatusCode() != 200) {
-        eml.setLogoUrl(null);
-      }
+      String logoUrl = "";
+      try {
+        HttpUtil.Response logoResponse = httpUtil.get(eml.getLogoUrl());
+        if (logoResponse.getStatusCode() == 200) {
+          logoUrl = eml.getLogoUrl();
+        }
+      } catch (Exception e) {}
+      eml.setLogoUrl(logoUrl);
     }
 
     if (mode == IPT_EXPORT) {
@@ -332,13 +332,19 @@ public class DatasetRescuer {
 
     if (mode == RESCUE) {
       // Update endpoint in the registry
-      Endpoint oldEndpoint = dataset.getEndpoints().get(0);
-      if (!oldEndpoint.getUrl().toString().contains("orphans.gbif.org")) {
-        datasetService.deleteEndpoint(uuid, oldEndpoint.getKey());
+      Endpoint oldEndpoint = dataset.getEndpoints().stream()
+          .filter(ep -> ep.getType() == EndpointType.BIOCASE || ep.getType() == EndpointType.DIGIR || ep.getType() == EndpointType.DIGIR_MANIS || ep.getType() == EndpointType.BIOCASE || ep.getType() == EndpointType.DWC_ARCHIVE || ep.getType() == EndpointType.TAPIR)
+          .findFirst()
+          .orElse(null);
+
+      if (oldEndpoint == null || !oldEndpoint.getUrl().toString().contains("orphans.gbif.org")) {
+        if (oldEndpoint != null) {
+          datasetService.deleteEndpoint(uuid, oldEndpoint.getKey());
+        }
 
         String endPointDirectory = null;
 
-        if (organization.getCountry() != null) {
+        if (node.getType() == NodeType.COUNTRY) {
           endPointDirectory = organization.getCountry().getIso2LetterCode().toUpperCase();
         } else {
           endPointDirectory = organization.getEndorsingNodeKey().toString();
@@ -359,7 +365,7 @@ public class DatasetRescuer {
     Injector injector = Guice.createInjector(new WatchdogModule());
     DatasetRescuer rescuer = new DatasetRescuer(injector.getInstance(DownloadRequestService.class),
       injector.getInstance(OccurrenceDownloadService.class), injector.getInstance(DatasetService.class),
-      injector.getInstance(OrganizationService.class));
+      injector.getInstance(OrganizationService.class), injector.getInstance(NodeService.class));
 
     if (args.length < 1) {
       System.err.println("Give dataset keys as argument");
@@ -404,7 +410,7 @@ public class DatasetRescuer {
   }
 
   /**
-   * Provides a freemarker template loader. It is configured to access the utf8 ipt folder on the classpath.
+   * Provides a freemarker template loader. It is configured to access the UTF-8 IPT folder on the classpath.
    */
   private static Configuration provideFreemarker() {
     TemplateLoader tl = new ClassTemplateLoader(DatasetRescuer.class, "/ipt");
@@ -414,6 +420,9 @@ public class DatasetRescuer {
     return fm;
   }
 
+  /**
+   * Deduplicate records using occurrenceId, institutionCode, collectionCode, catalogueNumber.
+   */
   Predicate<String> duplicateTripleFilter = new Predicate<String>() {
     final String RS = "\u001e";
     Set<String> triples = new HashSet<>();
@@ -421,7 +430,7 @@ public class DatasetRescuer {
     @Override
     public boolean test(String s) {
       String[] columns = s.split("\t");
-      String triple = columns[59] + RS + columns[60] + RS + columns[68];
+      String triple = columns[67] + RS + columns[59] + RS + columns[60] + RS + columns[68];
       if (triples.contains(triple)) {
         System.out.println("Duplicate triple "+triple.replace(RS, "\u241e"));
         return false;
