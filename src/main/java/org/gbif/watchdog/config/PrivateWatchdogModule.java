@@ -38,6 +38,7 @@ public class PrivateWatchdogModule extends PrivateModule {
   public GbifAuthService provideGbifAuthService() {
     String appKey = properties.getProperty(GbifApplicationAuthModule.PROPERTY_APP_KEY);
     String appSecret = properties.getProperty(GbifApplicationAuthModule.PROPERTY_APP_SECRET);
+
     return GbifAuthService.singleKeyAuthService(appKey, appSecret);
   }
 

@@ -17,9 +17,11 @@
   <url>http://maven.apache.org</url>
 
   <properties>
+    <checklistbank-ws-client.version>2.53</checklistbank-ws-client.version>
     <gbif-common.version>0.32</gbif-common.version>
     <gbif-httputils.version>0.10</gbif-httputils.version>
     <gbif-metadata-profile.version>1.1.1</gbif-metadata-profile.version>
+    <metrics-ws-client.version>0.26</metrics-ws-client.version>
     <occurrence-ws-client.version>0.79</occurrence-ws-client.version>
     <registry-ws-client.version>2.78</registry-ws-client.version>
 
@@ -56,6 +58,16 @@
       <groupId>org.gbif.occurrence</groupId>
       <artifactId>occurrence-ws-client</artifactId>
       <version>${occurrence-ws-client.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.gbif.metrics</groupId>
+      <artifactId>metrics-ws-client</artifactId>
+      <version>${metrics-ws-client.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.gbif.checklistbank</groupId>
+      <artifactId>checklistbank-ws-client</artifactId>
+      <version>${checklistbank-ws-client.version}</version>
     </dependency>
     <dependency>
       <groupId>org.gbif</groupId>
@@ -126,10 +138,6 @@
             </goals>
           </execution>
         </executions>
-        <configuration>
-          <!--mainClass>org.gbif.OrphanDatasetScanner</mainClass-->
-          <mainClass>org.gbif.DatasetRescuer</mainClass>
-        </configuration>
       </plugin>
     </plugins>
   </build>

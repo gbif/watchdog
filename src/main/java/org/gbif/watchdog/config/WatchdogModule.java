@@ -1,5 +1,7 @@
 package org.gbif.watchdog.config;
 
+import org.gbif.checklistbank.ws.client.guice.ChecklistBankWsClientModule;
+import org.gbif.metrics.ws.client.guice.MetricsWsClientModule;
 import org.gbif.occurrence.ws.client.OccurrenceWsClientModule;
 import org.gbif.registry.ws.client.guice.RegistryWsClientModule;
 import org.gbif.utils.file.properties.PropertiesUtil;
@@ -30,6 +32,12 @@ public class WatchdogModule extends AbstractModule {
 
       // bind occurrence service
       install(new OccurrenceWsClientModule(properties));
+
+      // bind metrics service
+      install(new MetricsWsClientModule(properties));
+
+      // bind checklistbank service
+      install(new ChecklistBankWsClientModule(properties, true, true));
     } catch (IllegalArgumentException e) {
       this.addError(e);
     } catch (IOException e) {

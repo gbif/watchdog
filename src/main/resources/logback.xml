@@ -11,6 +11,15 @@
     </encoder>
   </appender>
 
+  <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+    <file>watchdog.log</file>
+    <encoder>
+      <pattern>${defaultPattern}</pattern>
+    </encoder>
+  </appender>
+
+  <logger name="org.gbif.OrphanDatasetScanner" level="DEBUG"/>
+
   <root level="INFO">
     <appender-ref ref="CONSOLE"/>
   </root>
