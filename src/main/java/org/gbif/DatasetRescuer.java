@@ -175,8 +175,10 @@ public class DatasetRescuer {
     LOG.info(String.valueOf(downloadMetadata.getTotalRecords()));
 
     // Mark download to be kept forever
-    downloadMetadata.setEraseAfter(null);
-    occurrenceDownloadService.update(downloadMetadata);
+    if (downloadMetadata.getEraseAfter() != null) {
+      downloadMetadata.setEraseAfter(null);
+      occurrenceDownloadService.update(downloadMetadata);
+    }
 
     // retrieve dataset metadata XML file from GBIF cache, e.g. http://api.gbif.org/v1/dataset/98333cb6-6c15-4add-aa0e-b322bf1500ba/document
     Eml eml = EmlFactory.build(datasetService.getMetadataDocument(uuid));
