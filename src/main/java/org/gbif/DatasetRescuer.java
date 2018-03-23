@@ -226,11 +226,17 @@ public class DatasetRescuer {
     }
 
     // add external link to GBIF download (DwC-A format) that was used to rescue dataset - this must be preserved forever
-    if (!emlGbif.getPhysicalData().isEmpty()) {
-      PhysicalData physicalData = emlGbif.getPhysicalData().get(0);
-      physicalData.setName(GBIF_DOWNLOAD_NAME);
-      eml.addPhysicalData(physicalData);
+    // First remove existing ones, in case this is a re-run of this script
+    List<PhysicalData> toRemove = new ArrayList<>();
+    for (PhysicalData pd : eml.getPhysicalData()) {
+      if (pd.getName().equals(GBIF_DOWNLOAD_NAME)) {
+        toRemove.add(pd);
+      }
     }
+    eml.getPhysicalData().removeAll(toRemove);
+    PhysicalData physicalData = emlGbif.getPhysicalData().get(0);
+    physicalData.setName(GBIF_DOWNLOAD_NAME);
+    eml.addPhysicalData(physicalData);
 
     // ensure specimen preservation methods are lowercase, otherwise IPT doesn't recognize method
     ListIterator<String> iterator = eml.getSpecimenPreservationMethods().listIterator();
@@ -256,6 +262,10 @@ public class DatasetRescuer {
     String newCitation = gbifCitationEnding.matcher(eml.getCitationString()).replaceFirst("");
     LOG.info("New citation {}", newCitation);
     eml.getCitation().setCitation(newCitation);
+
+    if (CitationOverride.citation.containsKey(datasetKey)) {
+      eml.getCitation().setCitation(CitationOverride.citation.get(datasetKey));
+    }
 
     if (mode == IPT_EXPORT) {
       // reset version to 1.0
