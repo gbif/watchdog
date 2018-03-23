@@ -40,6 +40,7 @@ import java.nio.file.Path;
 import java.text.ParseException;
 import java.util.*;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static org.gbif.DatasetRescuer.Mode.IPT_EXPORT;
@@ -246,6 +247,13 @@ public class DatasetRescuer {
       } catch (Exception e) {}
       eml.setLogoUrl(logoUrl);
     }
+
+    // remove "accessed via GBIF.org on YYYY-MM-DD." from citation if present.
+    // (Matters for OBIS datasets, where the custom citation is used.)
+    Pattern gbifCitationEnding = Pattern.compile(" accessed via GBIF.org on \\d\\d\\d\\d-\\d\\d-\\d\\d.");
+    String newCitation = gbifCitationEnding.matcher(eml.getCitationString()).replaceFirst("");
+    LOG.info("New citation {}", newCitation);
+    eml.getCitation().setCitation(newCitation);
 
     if (mode == IPT_EXPORT) {
       // reset version to 1.0
