@@ -17,13 +17,13 @@
   <url>http://maven.apache.org</url>
 
   <properties>
-    <checklistbank-ws-client.version>2.53</checklistbank-ws-client.version>
-    <gbif-common.version>0.32</gbif-common.version>
+    <checklistbank-ws-client.version>2.69</checklistbank-ws-client.version>
+    <gbif-common.version>0.40</gbif-common.version>
     <gbif-httputils.version>0.10</gbif-httputils.version>
     <gbif-metadata-profile.version>1.1.1</gbif-metadata-profile.version>
     <metrics-ws-client.version>0.26</metrics-ws-client.version>
-    <occurrence-ws-client.version>0.79</occurrence-ws-client.version>
-    <registry-ws-client.version>2.78</registry-ws-client.version>
+    <occurrence-ws-client.version>0.82</occurrence-ws-client.version>
+    <registry-ws-client.version>2.85</registry-ws-client.version>
 
     <guava.version>18.0</guava.version>
     <guice.version>4.0</guice.version>
