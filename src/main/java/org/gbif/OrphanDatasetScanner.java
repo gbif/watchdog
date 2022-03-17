@@ -1,5 +1,13 @@
 package org.gbif;
 
+import com.beust.jcommander.internal.Lists;
+import com.beust.jcommander.internal.Maps;
+import com.beust.jcommander.internal.Sets;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.Ordering;
+import com.sun.jersey.api.client.ClientHandlerException;
+import org.apache.commons.lang3.StringUtils;
 import org.gbif.api.exception.ServiceUnavailableException;
 import org.gbif.api.model.checklistbank.DatasetMetrics;
 import org.gbif.api.model.common.paging.PagingRequest;
@@ -7,8 +15,6 @@ import org.gbif.api.model.common.paging.PagingResponse;
 import org.gbif.api.model.common.search.SearchResponse;
 import org.gbif.api.model.crawler.DatasetProcessStatus;
 import org.gbif.api.model.crawler.FinishReason;
-import org.gbif.api.model.metrics.cube.OccurrenceCube;
-import org.gbif.api.model.metrics.cube.ReadBuilder;
 import org.gbif.api.model.occurrence.search.OccurrenceSearchParameter;
 import org.gbif.api.model.occurrence.search.OccurrenceSearchRequest;
 import org.gbif.api.model.registry.Dataset;
@@ -16,21 +22,17 @@ import org.gbif.api.model.registry.Installation;
 import org.gbif.api.model.registry.Node;
 import org.gbif.api.model.registry.Organization;
 import org.gbif.api.service.checklistbank.DatasetMetricsService;
-import org.gbif.api.service.metrics.CubeService;
 import org.gbif.api.service.occurrence.OccurrenceSearchService;
-import org.gbif.api.service.registry.DatasetProcessStatusService;
-import org.gbif.api.service.registry.DatasetService;
-import org.gbif.api.service.registry.InstallationService;
-import org.gbif.api.service.registry.NodeService;
-import org.gbif.api.service.registry.OrganizationService;
+import org.gbif.api.service.registry.*;
 import org.gbif.api.vocabulary.Country;
 import org.gbif.api.vocabulary.MediaType;
 import org.gbif.common.parsers.CountryParser;
 import org.gbif.watchdog.config.WatchdogModule;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.Writer;
+import javax.validation.constraints.NotNull;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.ParseException;
@@ -38,37 +40,24 @@ import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
-import javax.validation.constraints.NotNull;
 
-import com.beust.jcommander.internal.Lists;
-import com.beust.jcommander.internal.Maps;
-import com.beust.jcommander.internal.Sets;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Ordering;
-import com.google.inject.Guice;
-import com.google.inject.Injector;
-import com.sun.jersey.api.client.ClientHandlerException;
-import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static org.gbif.api.model.crawler.FinishReason.*;
+import static org.gbif.api.model.crawler.FinishReason.NORMAL;
+import static org.gbif.api.model.crawler.FinishReason.NOT_MODIFIED;
+import static org.gbif.api.vocabulary.EndpointType.DWC_ARCHIVE;
 
 /**
  * Program scans all datasets registered in GBIF for potential orphaned datasets.
  */
 public class OrphanDatasetScanner {
   private static Logger LOG = LoggerFactory.getLogger(OrphanDatasetScanner.class);
-  private static final Date CUTOFF_DATE = Date.from(Instant.parse("2017-04-25T00:00:00Z"));
+  private static final Date CUTOFF_DATE = Date.from(Instant.parse("2021-03-15T00:00:00Z"));
   private static final SimpleDateFormat ISO_8601_SDF = new SimpleDateFormat("yyyy-MM-dd");
   private static final Pattern escapeChars = Pattern.compile("[\t\n\r]");
   private static final String TSV_EXTENSION = ".tsv";
   private static final String YES = "YES";
   private static final String PNMC = "Participant Node Managers Committee";
   private static final String FILENAME_INVALID = "onlineButInvalid";
-  private static final String FILENAME_2017 = "toRescueIn2017";
-  private static final String FILENAME_2018 = "toRescueIn2018";
+  private static final String FILENAME_2022 = "toRescueIn2022";
   private static final int PAGING_LIMIT = 100;
   // timeout in milliseconds for both the connection timeout and the response read timeout
   private static final int TIMEOUT_MILLIS = 500;
@@ -77,32 +66,28 @@ public class OrphanDatasetScanner {
   private final OrganizationService organizationService;
   private final NodeService nodeService;
   private final InstallationService installationService;
-  private final CubeService occurrenceCubeService;
   private final DatasetMetricsService datasetMetricsService;
   private final OccurrenceSearchService occurrenceSearchService;
   private final DatasetProcessStatusService statusService;
 
   private Map<String, List<String[]>> orphansByParticipant;
-  private List<String[]> orphansRescued2017;
-  private List<String[]> orphansRescued2018;
+  private List<String[]> orphansRescued2022;
   private List<String[]> nonOrphansJustInvalid;
   private final File outputDirectory;
 
   OrphanDatasetScanner(DatasetService datasetService, OrganizationService organizationService, NodeService nodeService,
-    InstallationService installationService, CubeService occurrenceCubeService,
+    InstallationService installationService,
     DatasetMetricsService datasetMetricsService, OccurrenceSearchService occurrenceSearchService,
     DatasetProcessStatusService statusService) throws IOException {
     this.datasetService = datasetService;
     this.organizationService = organizationService;
     this.nodeService = nodeService;
     this.installationService = installationService;
-    this.occurrenceCubeService = occurrenceCubeService;
     this.datasetMetricsService = datasetMetricsService;
     this.occurrenceSearchService = occurrenceSearchService;
     this.statusService = statusService;
     orphansByParticipant = Maps.newHashMap();
-    orphansRescued2017 = Lists.newArrayList();
-    orphansRescued2018 = Lists.newArrayList();
+    orphansRescued2022 = Lists.newArrayList();
     nonOrphansJustInvalid = Lists.newArrayList();
     outputDirectory = org.gbif.utils.file.FileUtils.createTempDir();
   }
@@ -142,10 +127,13 @@ public class OrphanDatasetScanner {
           String mostRecentCrawlStatus = null;
           String mostRecentCrawlDate = null;
           boolean potentialFalsePositive = false;
+          Date notModifiedDate = null;
+          String notModifiedHash = null;
 
           // iterate through the dataset's crawl history
           PagingResponse<DatasetProcessStatus> statusResults = null;
           PagingRequest statusPage = new PagingRequest(0, PAGING_LIMIT);
+          statusLoop:
           do {
             try {
               statusResults = statusService.listDatasetProcessStatus(d.getKey(), statusPage);
@@ -163,28 +151,64 @@ public class OrphanDatasetScanner {
               } else {
                 for (DatasetProcessStatus st : results) {
                   LOG.debug("{} processing {}", d.getKey(), st);
+                  LOG.info("{} {} status {} time {}", d.getKey(), st.getCrawlJob().getAttempt(), st.getFinishReason(), st.getFinishedCrawling());
                   FinishReason finishReason = st.getFinishReason(); // NORMAL, USER_ABORT, ABORT, NOT_MODIFIED, UNKNOWN
-                  Date finishedCrawling = st.getFinishedCrawling();
-                  if (finishReason != null && finishedCrawling != null) {
-                    if (mostRecentCrawlStatus == null) {
-                      mostRecentCrawlStatus = finishReason.toString();
-                      mostRecentCrawlDate = convertToIsoDate(finishedCrawling);
-                      mostRecentCrawlEndpointType = (st.getCrawlJob().getEndpointType() == null) ? "" : st.getCrawlJob().getEndpointType().toString();
-                      mostRecentCrawlEndpointUri = (st.getCrawlJob().getTargetUrl() == null) ? "" : st.getCrawlJob().getTargetUrl().toString();
 
-                      // check: was most recent crawl successful, and did it occur before cutoff?
-                      if (afterCutoff(finishedCrawling)
-                          && (finishReason == NORMAL || finishReason == NOT_MODIFIED)) { // TODO is not modified enough?
-                        orphaned = false;
-                        break;
-                      }
+                  if (finishReason == null || st.getFinishedCrawling() == null) {
+                    LOG.info("\t{} is currently crawling (attempt {})", d.getKey(), st.getCrawlJob().getAttempt());
+                    // Current crawl
+                    continue;
+                  }
+
+                  if (mostRecentCrawlStatus == null) {
+                    mostRecentCrawlStatus = finishReason.toString();
+                    mostRecentCrawlDate = convertToIsoDate(st.getFinishedCrawling());
+                    mostRecentCrawlEndpointType = (st.getCrawlJob().getEndpointType() == null) ? "" : st.getCrawlJob().getEndpointType().toString();
+                    mostRecentCrawlEndpointUri = (st.getCrawlJob().getTargetUrl() == null) ? "" : st.getCrawlJob().getTargetUrl().toString();
+                  }
+
+                  if (finishReason == NOT_MODIFIED) {
+                    LOG.debug("\t{} is not modified, crawl {} on {}", d.getKey(), st.getCrawlJob().getAttempt(), st.getFinishedCrawling());
+
+                    // Record the hash of the not-modified file, and check it matches with the hash of the earlier normal file.
+                    // Avoids the case where the not-modified file is an error page or similar.
+
+                    String hash = dwcaHashFromCache(d.getKey().toString(), st.getCrawlJob().getAttempt());
+                    LOG.info("Hashed {} {} to {}", d.getKey(), st.getCrawlJob().getAttempt(), hash);
+
+                    if (notModifiedDate == null || !notModifiedHash.equals(hash)) {
+                      notModifiedDate = st.getFinishedCrawling();
+                      notModifiedHash = hash;
+                    }
+                    continue;
+                  }
+
+                  if (finishReason == NORMAL) {
+                    // Use most recent not-modified date if there are more recent crawls with the same data
+                    String hash;
+                    if (st.getCrawlJob().getEndpointType() == DWC_ARCHIVE) {
+                      hash = dwcaHashFromCache(d.getKey().toString(), st.getCrawlJob().getAttempt());
+                    } else {
+                      hash = "notdwca";
+                    }
+                    if (notModifiedDate != null && !notModifiedHash.equals(hash)) {
+                      // Hashes don't match, ignore the subsequent not-modified crawl (this must be normal, abort, not_modified).
+                      notModifiedDate = st.getFinishedCrawling();
+                      notModifiedHash = hash;
+                    }
+                    Date finishedCrawling = (notModifiedDate == null) ? st.getFinishedCrawling() : notModifiedDate;
+
+                    // check: was most recent crawl successful, and did it occur before cutoff?
+                    if (afterCutoff(finishedCrawling)) {
+                      orphaned = false;
+                      LOG.debug("\t{} is not orphaned, crawl {} on {}", d.getKey(), st.getCrawlJob().getAttempt(), finishedCrawling);
+                      break statusLoop;
                     }
                     // otherwise check: was this a successful crawl that occurred before cutoff?
-                    else if (beforeCutoff(finishedCrawling)) {
-                      if (finishReason != null && finishReason == NORMAL) {
-                        orphaned = false;
-                        break;
-                      }
+                    if (beforeCutoff(finishedCrawling)) {
+                      LOG.info("\t{}   IS   orphaned, crawl {} on {}", d.getKey(), st.getCrawlJob().getAttempt(), finishedCrawling);
+                      orphaned = true;
+                      break statusLoop;
                     }
                   }
                 }
@@ -196,7 +220,7 @@ public class OrphanDatasetScanner {
           } while (statusResults != null && !statusResults.isEndOfRecords());
 
           // Warning: excluding false positives due to phantom crawl issue until it gets fixed: https://github.com/gbif/crawler/issues/3
-          if (orphaned && !potentialFalsePositive) {
+          if (orphaned) {
             orphans++;
             Node node = nodeService.get(organization.getEndorsingNodeKey());
             String[] record =
@@ -205,24 +229,13 @@ public class OrphanDatasetScanner {
 
             // Warning: excluding false positives that are online but not indexed because they are invalid! Note that fixing https://github.com/gbif/crawler/issues/9 would help discover these.
             boolean online = Boolean.valueOf(record[20]); // corresponds to column "online?"
-            int numOccurrences = Integer.valueOf(record[4]);
-            int numUsages = Integer.valueOf(record[5]);
             if (online) {
               nonOrphansJustInvalid.add(record);
-            }
-            // Warning: excluding datasets that are offline with 0 records (0 occurrences or 0 name usages)
-            else if (numOccurrences == 0 && numUsages == 0) {
-              LOG.warn("Excluding dataset with 0 records: " + record[1]);
             }
             else {
               String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
               orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
-              // split orphans into two files - to be rescued in 2018 (2nd round), and to be rescued in 2017 (1st round)
-              if (rescueIn2018(organization)) {
-                orphansRescued2018.add(record.clone());
-              } else {
-                orphansRescued2017.add(record.clone());
-              }
+              orphansRescued2022.add(record.clone());
             }
           }
         }
@@ -235,10 +248,8 @@ public class OrphanDatasetScanner {
     writeListToFiles(FILENAME_INVALID, nonOrphansJustInvalid);
     // write orphans to file, separated by participant
     writeMapToFiles(orphansByParticipant);
-    // write all orphans to be rescued in 2017 to file
-    writeListToFiles(FILENAME_2017, orphansRescued2017);
-    // write all orphans to be rescued in 2018 to file
-    writeListToFiles(FILENAME_2018, orphansRescued2018);
+    // write all orphans to be rescued in 2022 to file
+    writeListToFiles(FILENAME_2022, orphansRescued2022);
   }
 
   /**
@@ -383,7 +394,10 @@ public class OrphanDatasetScanner {
     boolean hasEndpoints = dataset.getEndpoints().size() > 0;
 
     // how many occurrence records?
-    long numOccurrences = occurrenceCubeService.get(new ReadBuilder().at(OccurrenceCube.DATASET_KEY, dataset.getKey()));
+    OccurrenceSearchRequest countRequest = new OccurrenceSearchRequest();
+    countRequest.setLimit(0);
+    countRequest.addDatasetKeyFilter(dataset.getKey());
+    long numOccurrences = occurrenceSearchService.search(countRequest).getCount();
 
     // how many name usages?
     long numNameUsages = 0;
@@ -473,165 +487,16 @@ public class OrphanDatasetScanner {
    * @return true if dataset should be skipped, false otherwise
    */
   private boolean toIgnore(Dataset dataset, Organization organization) {
-    // ignore Pangaea
-    // if (dataset.getPublishingOrganizationKey().equals(UUID.fromString("d5778510-eb28-11da-8629-b8a03c50a862"))) {
-    //   return true;
-    // }
-    // ignore the UK
-    // if (organization.getEndorsingNodeKey().equals(UUID.fromString("d897a5b9-35ee-4232-94bd-b0bcaac003c2"))) {
-    //   return true;
-    // }
     // ignore the Catalogue of Life
-    // if (dataset.getPublishingOrganizationKey().equals(UUID.fromString("f4ce3c03-7b38-445e-86e6-5f6b04b649d4"))) {
-    //   return true;
-    // }
-    // ignore GEO-Tag der Artenvielfalt - 1219 datasets with no crawl history, frozen in time
-    // if (dataset.getPublishingOrganizationKey().equals(UUID.fromString("ef69a030-3940-11dd-b168-b8a03c50a862"))) {
-    //   return true;
-    // }
+    if (dataset.getPublishingOrganizationKey().equals(UUID.fromString("f4ce3c03-7b38-445e-86e6-5f6b04b649d4"))) {
+      return true;
+    }
     // ignore Plazi - more than 1600 false positives
-    // if (organization.getEndorsingNodeKey().equals(UUID.fromString("ffb07bec-2d10-492d-9c37-361fe0b79427"))) {
-    //   return true;
-    // }
-    // ignore OBIS
-    // if (organization.getEndorsingNodeKey().equals(UUID.fromString("ba0670b9-4186-41e6-8e70-f9cb3065551a"))) {
-    //   return true;
-    // }
-    // eBird, because it gets published once a year without fail
-    // if (dataset.getKey().equals(UUID.fromString("4fa7b334-ce0d-4e88-aaae-2e0c138d049e"))) {
-    //   return true;
-    // }
-    // ignore Togo, handled by BID
-    // if (organization.getEndorsingNodeKey().equals(UUID.fromString("c9659a3e-07e9-4fcb-83c6-de8b9009a02e"))) {
-    //   return true;
-    // }
-    // ignore GBIFS
-    // if (organization.getEndorsingNodeKey().equals(UUID.fromString("02c40d2a-1cba-4633-90b7-e36e5e97aba8"))) {
-    //   return true;
-    // }
-    return false;
-  }
-
-  /**
-   * Checks if dataset should be rescued in second round of adoptions in 2018, to give the Node more time to
-   * investigate their orphans. These are the Nodes that replied during the campaign.
-   *
-   * @param organization organization of candidate orphan dataset
-   *
-   * @return true if dataset should be rescued, false otherwise
-   */
-  private boolean rescueIn2018(Organization organization) {
-    // Taiwan
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("e1b85abc-61f9-430f-ba79-6813dec53a0f"))) {
-      return true;
-    }
-    // Switzerland
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("169eb292-376b-4cc6-8e31-9c2c432de0ad"))) {
-      return true;
-    }
-    // Mexico
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("b324e8e9-9a4c-44fa-8f1a-7f39ea7ab576"))) {
-      return true;
-    }
-    // Japan
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("db5705aa-6a6e-42f1-8942-d77b9f4896ea"))) {
-      return true;
-    }
-    // Poland
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("2618bfdf-e194-4911-a241-80db3107bc51"))) {
-      return true;
-    }
-    // New Zealand
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("4f9fd726-20dd-445e-89a1-8ed93792276f"))) {
-      return true;
-    }
-    // Argentina
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("2426a871-9feb-40a1-96c6-0c593a76b835"))) {
-      return true;
-    }
-    // Brazil
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("cdc9736d-5ff7-4ece-9959-3c744360cdb3"))) {
-      return true;
-    }
-    // Chile
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("a8b16421-d80b-4ef3-8f22-098b01a89255"))) {
-      return true;
-    }
-    // Colombia
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("7e865cba-7c46-417b-ade5-97f2cf5b7be0"))) {
-      return true;
-    }
-    // Israel
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("8cb55387-7802-40e8-86d6-d357a583c596"))) {
-      return true;
-    }
-    // CAS
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("e760dc6f-dd68-474d-ab41-bd3588571793"))) {
-      return true;
-    }
-    // Germany
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("4f6826f2-4ff6-443d-b966-e6913bd24013"))) {
-      return true;
-    }
-    // Sweden
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("a0b3be64-6525-4387-ac67-a499950f92e1"))) {
-      return true;
-    }
-    // France
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("da44cd31-5901-4687-a106-6d1c7734ee3a"))) {
-      return true;
-    }
-    // Denmark
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("4ddd294f-02b7-4359-ac33-0806a9ca9c6b"))) {
-      return true;
-    }
-    // Portugal
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("673f7038-4262-4149-b753-5658a4e912f6"))) {
-      return true;
-    }
-    // Norway
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("4f829580-180d-46a9-9c87-ed8ec959b545"))) {
-      return true;
-    }
-    // Belgium
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("fb11cfe1-ebc3-45af-9159-17d9fddbcdac"))) {
-      return true;
-    }
-    // Netherlands
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("0909d601-bda2-42df-9e63-a6d51847ebce"))) {
-      return true;
-    }
-    // Finland
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("dd514216-5c7c-45f3-910d-797424cb5be6"))) {
-      return true;
-    }
-    // Spain
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("1f94b3ca-9345-4d65-afe2-4bace93aa0fe"))) {
-      return true;
-    }
-    // Participant Node Managers Committee - TODO communication with each individual publisher outstanding
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("7f48e0c8-5c96-49ec-b972-30748e339115"))) {
-      return true;
-    }
-    // Andorra - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("8df8d012-8e64-4c8a-886e-521a3bdfa623"))) {
-      return true;
-    }
-    // India - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("59d15a9b-ba51-43c3-a53f-304fe6732c04"))) {
-      return true;
-    }
-    // Indonesia - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("2ebd91f6-f14f-4375-b525-c011a3774f03"))) {
-      return true;
-    }
-    // Ireland - TODO communication outstanding, as this Node's orphans didn't exist when campaign started
-    if (organization.getEndorsingNodeKey().equals(UUID.fromString("422b00b2-6c94-4bb6-976b-c359916efdb8"))) {
+    if (organization.getEndorsingNodeKey().equals(UUID.fromString("ffb07bec-2d10-492d-9c37-361fe0b79427"))) {
       return true;
     }
     return false;
   }
-
 
   /**
    * Method derived from https://stackoverflow.com/a/3584332 and tested in OrphanDatasetScannerTest.
@@ -646,66 +511,9 @@ public class OrphanDatasetScanner {
   public static boolean pingURL(String url) {
     // Endpoints not actually online, but nevertheless give a successful response:
     // http://bijh.zrc-sazu.si/DIGIR/digir.php Digir Installation from Slovenia 5ff785c2-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("http://bijh.zrc-sazu.si/DIGIR/digir.php")) {
-      return false;
-    }
-    // http://choreutidae.lifedesks.org/classification.tar.gz HTTP installation from the USA dd247de0-f003-4d3e-b090-8b32c2c243da
-    if (url.equalsIgnoreCase("http://choreutidae.lifedesks.org/classification.tar.gz")) {
-      return false;
-    }
-    // http://data.aad.gov.au/digir/digir.php DiGIR installation from Australia 5ffda196-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("http://data.aad.gov.au/digir/digir.php")) {
-      return false;
-    }
-    // http://w2.scarmarbin.be/digir2/digir.php DiGIR installation from ANTABIF 601e20f6-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("http://w2.scarmarbin.be/digir2/digir.php")) {
-      return false;
-    }
-    // http://www.ots.ac.cr/herbarium/gbif/dwca-herbariumlc.zip HTTP installation from Costa Rica 9976bbce-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("http://www.ots.ac.cr/herbarium/gbif/dwca-herbariumlc.zip")) {
-      return false;
-    }
-    // http://acoi.ci.uc.pt/digir/www/DiGIR.php DiGIR installation from Portugal 5ff54d98-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("http://acoi.ci.uc.pt/digir/www/DiGIR.php")) {
-      return false;
-    }
-    // http://dl.dropbox.com/u/523458/Dyntaxa/Archive.zip HTTP installation from Sweden 995f8ae4-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("http://dl.dropbox.com/u/523458/Dyntaxa/Archive.zip")) {
-      return false;
-    }
-    // http://pensoft.net/dwc/bdj/checklist_* HTTP installation from BDJ d5b61ace-f25c-43bd-9dd0-03486850f90b
-    if (url.startsWith("http://pensoft.net/dwc/bdj/checklist")) {
-      return false;
-    }
-    // http://sammlung.pal.uni-erlangen.de/biocase/pywrapper.cgi?dsa=collectionpalaeobiology BioCASE installation from Germany 38290c67-22d0-4582-b288-641c29e913a2
-    if (url.equalsIgnoreCase("http://sammlung.pal.uni-erlangen.de/biocase/pywrapper.cgi?dsa=collectionpalaeobiology")) {
-      return false;
-    }
-    // http://sammlung.pal.uni-erlangen.de/biocase/pywrapper.cgi?dsa=herbariumerlangense BioCASE installation from Germany 38290c67-22d0-4582-b288-641c29e913a2
-    if (url.equalsIgnoreCase("http://sammlung.pal.uni-erlangen.de/biocase/pywrapper.cgi?dsa=herbariumerlangense")) {
-      return false;
-    }
-    // http://www.sib.gov.ar/tapirlink-0.7.0/www/tapir.php/APN-CHORDATA TAPIR installation from Argentina 6064fb16-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("http://www.sib.gov.ar/tapirlink-0.7.0/www/tapir.php/APN-CHORDATA")) {
-      return false;
-    }
-    // http://www.sib.gov.ar/tapirlink-0.7.0/www/tapir.php/APN-DOCUMENTOS TAPIR installation from Argentina 6064fb16-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("http://www.sib.gov.ar/tapirlink-0.7.0/www/tapir.php/APN-DOCUMENTOS")) {
-      return false;
-    }
-    // http://www.gbif.org.nz/tapirlink/tapir.php/NZBRN TAPIR installation from New Zealand that redirects to GBIF.org
-    if (url.equalsIgnoreCase("http://www.gbif.org.nz/tapirlink/tapir.php/NZBRN")) {
-      return false;
-    }
-    // https://herbarium.biology.colostate.edu/digir/DiGIR.php DiGIR installation from US 600b4684-f762-11e1-a439-00145eb45e9a
-    if (url.equalsIgnoreCase("https://herbarium.biology.colostate.edu/digir/DiGIR.php")) {
-      return false;
-    }
-    // http://diatoms.lifedesks.org/classification.tar.gz HTTP installation from US
-    if (url.equalsIgnoreCase("http://diatoms.lifedesks.org/classification.tar.gz")) {
-      return false;
-    }
-    url = url.replaceFirst("^https", "http"); // Otherwise an exception may be thrown on invalid SSL certificates.
+    // if (url.equalsIgnoreCase("http://bijh.zrc-sazu.si/DIGIR/digir.php")) {
+    //   return false;
+    // }
     try {
       HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
       connection.setConnectTimeout(TIMEOUT_MILLIS);
@@ -777,13 +585,41 @@ public class OrphanDatasetScanner {
     LOG.info("Total # of phantom crawls: " + phantoms);
   }
 
+  private String dwcaHashFromCache(String datasetKey, int attempt) {
+    ProcessBuilder processBuilder = new ProcessBuilder();
+    processBuilder.command("ssh", "crap@prodcrawler1-vh.gbif.org", "md5sum", "storage/dwca/"+datasetKey+"/"+datasetKey+"."+attempt+".dwca");
+    try {
+      Process process = processBuilder.start();
+
+      BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+      String line = reader.readLine();
+      String hash = line.split(" ")[0];
+
+      int exitVal = process.waitFor();
+      if (exitVal == 0) {
+        return hash;
+      } else {
+        LOG.error("Problem finding hash for {} {}", datasetKey, attempt);
+        return null;
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+    return null;
+  }
+
   public static void main(String[] args) throws ParseException, IOException {
-    Injector injector = Guice.createInjector(new WatchdogModule());
-    OrphanDatasetScanner scanner = new OrphanDatasetScanner(injector.getInstance(DatasetService.class),
-      injector.getInstance(OrganizationService.class), injector.getInstance(NodeService.class),
-      injector.getInstance(InstallationService.class), injector.getInstance(CubeService.class),
-      injector.getInstance(DatasetMetricsService.class), injector.getInstance(OccurrenceSearchService.class),
-      injector.getInstance(DatasetProcessStatusService.class));
+    WatchdogModule watchdogModule = new WatchdogModule();
+    DatasetRescuerFromDwcaCache rescuer = new DatasetRescuerFromDwcaCache(watchdogModule.setupDatasetService(),
+      watchdogModule.setupOrganizationService(), watchdogModule.setupNodeService(), watchdogModule.setupDatasetProcessStatusService());
+
+    OrphanDatasetScanner scanner = new OrphanDatasetScanner(watchdogModule.setupDatasetService(),
+      watchdogModule.setupOrganizationService(), watchdogModule.setupNodeService(),
+      watchdogModule.setupInstallationService(),
+      watchdogModule.setupDatasetMetricsService(), watchdogModule.setupOccurrenceSearchService(),
+      watchdogModule.setupDatasetProcessStatusService());
     scanner.scan();
   }
 }

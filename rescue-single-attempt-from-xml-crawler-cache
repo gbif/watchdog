@@ -1,0 +1,31 @@
+#!/bin/bash -e
+
+echo "Rescuing $1 from crawler cache attempt $2"
+
+rm -fv $1.zip $1-$2.tar.xz || true
+
+# Retrieve and recompress as Zip
+scp -p crap@prodcrawler1-vh.gbif.org:storage/xml/$1/$2.tar.xz $1-$2.tar.xz
+tar Jxvf $1-$2.tar.xz
+zip -r $1.zip $1
+touch -r $1-$2.tar.xz $1.zip
+
+echo "Checking new archive is made"
+ls -l $1.zip
+
+mvn exec:java -Dexec.mainClass=org.gbif.CachedXmlArchiveRescuer -Dexec.args=$1
+
+pub=$(curl -Ss https://api.gbif.org/v1/dataset/$1 | jq -r .publishingOrganizationKey)
+
+node=$(curl -Ss https://api.gbif.org/v1/organization/$pub | jq -r .endorsingNodeKey)
+
+type=$(curl -Ss https://api.gbif.org/v1/node/$node | jq -r .type)
+
+if [[ $type == "COUNTRY" ]]; then
+    participant=$(curl -Ss https://api.gbif.org/v1/organization/$pub | jq -r .country)
+else
+    participant=$node
+fi
+
+ssh static-vh.gbif.org mkdir -p /var/www/html/orphans.gbif.org/$participant
+rsync -ptv $1.zip static-vh.gbif.org:/var/www/html/orphans.gbif.org/$participant/$1.zip

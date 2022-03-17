@@ -14,16 +14,15 @@
 
   <name>watchdog</name>
   <description>Project functioning as a watchful guardian of content in the GBIF network, especially against datasets going offline.</description>
-  <url>http://maven.apache.org</url>
 
   <properties>
-    <checklistbank-ws-client.version>2.69</checklistbank-ws-client.version>
-    <gbif-common.version>0.40</gbif-common.version>
-    <gbif-httputils.version>0.10</gbif-httputils.version>
+    <checklistbank-ws-client.version>2.99</checklistbank-ws-client.version>
+    <gbif-common.version>0.53</gbif-common.version>
+    <gbif-httputils.version>1.1</gbif-httputils.version>
     <gbif-metadata-profile.version>1.1.1</gbif-metadata-profile.version>
-    <metrics-ws-client.version>0.26</metrics-ws-client.version>
-    <occurrence-ws-client.version>0.82</occurrence-ws-client.version>
-    <registry-ws-client.version>2.85</registry-ws-client.version>
+    <metrics-ws-client.version>1.2</metrics-ws-client.version>
+    <occurrence-ws-client.version>0.175</occurrence-ws-client.version>
+    <registry-ws-client.version>3.77</registry-ws-client.version>
 
     <guava.version>18.0</guava.version>
     <guice.version>4.0</guice.version>

@@ -1,0 +1,25 @@
+#!/bin/bash -e
+
+for i in $*; do
+    echo "Rescuing $i from crawler cache"
+
+    mvn --quiet exec:java -Dexec.mainClass=org.gbif.DatasetRescuerFromDwcaCache -Dexec.args=$i 2>&1 | grep -v -e logback -e WARNING: -e google.inject -e client
+
+    pub=$(curl -Ss https://api.gbif.org/v1/dataset/$i | jq -r .publishingOrganizationKey)
+
+    node=$(curl -Ss https://api.gbif.org/v1/organization/$pub | jq -r .endorsingNodeKey)
+
+    type=$(curl -Ss https://api.gbif.org/v1/node/$node | jq -r .type)
+
+    if [[ $type == "COUNTRY" ]]; then
+        participant=$(curl -Ss https://api.gbif.org/v1/organization/$pub | jq -r .country)
+    else
+        participant=$node
+    fi
+
+    echo ssh static-vh.gbif.org mkdir -p /var/www/html/orphans.gbif.org/$participant
+    echo rsync -ptv $i.zip static-vh.gbif.org:/var/www/html/orphans.gbif.org/$participant/$i.zip
+
+    echo
+
+done

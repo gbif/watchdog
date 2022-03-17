@@ -1,0 +1,25 @@
+#!/bin/bash -e
+
+for i in $*; do
+    echo "Rescuing $i"
+
+    mvn exec:java -Dexec.mainClass=org.gbif.DatasetRescuer -Dexec.args=$i
+
+    pub=$(curl -Ss https://api.gbif.org/v1/dataset/$i | jq -r .publishingOrganizationKey)
+
+    node=$(curl -Ss https://api.gbif.org/v1/organization/$pub | jq -r .endorsingNodeKey)
+
+    type=$(curl -Ss https://api.gbif.org/v1/node/$node | jq -r .type)
+
+    if [[ $type == "COUNTRY" ]]; then
+        participant=$(curl -Ss https://api.gbif.org/v1/organization/$pub | jq -r .country)
+    else
+        participant=$node
+    fi
+
+    ssh static-vh.gbif.org mkdir -p /var/www/html/orphans.gbif.org/$participant
+    rsync -ptv $i/dwca-1.0.zip static-vh.gbif.org:/var/www/html/orphans.gbif.org/$participant/$i.zip
+
+    echo
+
+done
