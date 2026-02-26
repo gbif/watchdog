@@ -1,12 +1,49 @@
 package org.gbif;
 
+import org.gbif.api.exception.ServiceUnavailableException;
+import org.gbif.api.model.Constants;
+import org.gbif.api.model.checklistbank.DatasetMetrics;
+import org.gbif.api.model.common.paging.PagingRequest;
+import org.gbif.api.model.common.paging.PagingResponse;
+import org.gbif.api.model.common.search.SearchResponse;
+import org.gbif.api.model.crawler.DatasetProcessStatus;
+import org.gbif.api.model.crawler.FinishReason;
+import org.gbif.api.model.occurrence.search.OccurrenceSearchParameter;
+import org.gbif.api.model.occurrence.search.OccurrenceSearchRequest;
+import org.gbif.api.model.registry.Dataset;
+import org.gbif.api.model.registry.Installation;
+import org.gbif.api.model.registry.Node;
+import org.gbif.api.model.registry.Organization;
+import org.gbif.api.service.checklistbank.DatasetMetricsService;
+import org.gbif.api.service.occurrence.OccurrenceSearchService;
+import org.gbif.api.service.registry.DatasetProcessStatusService;
+import org.gbif.api.service.registry.DatasetService;
+import org.gbif.api.service.registry.InstallationService;
+import org.gbif.api.service.registry.NodeService;
+import org.gbif.api.service.registry.OrganizationService;
+import org.gbif.api.vocabulary.Country;
+import org.gbif.api.vocabulary.MediaType;
+import org.gbif.common.parsers.CountryParser;
+import org.gbif.watchdog.config.WatchdogModule;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Writer;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.util.*;
+import java.util.regex.Pattern;
+import javax.validation.constraints.NotNull;
+
 import com.beust.jcommander.internal.Lists;
 import com.beust.jcommander.internal.Maps;
 import com.beust.jcommander.internal.Sets;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Ordering;
-import com.sun.jersey.api.client.ClientHandlerException;
 import org.apache.commons.lang3.StringUtils;
 import org.gbif.api.exception.ServiceUnavailableException;
 import org.gbif.api.model.checklistbank.DatasetMetrics;
@@ -50,14 +87,14 @@ import static org.gbif.api.vocabulary.EndpointType.DWC_ARCHIVE;
  */
 public class OrphanDatasetScanner {
   private static Logger LOG = LoggerFactory.getLogger(OrphanDatasetScanner.class);
-  private static final Date CUTOFF_DATE = Date.from(Instant.parse("2021-03-15T00:00:00Z"));
+  private static final Date CUTOFF_DATE = Date.from(Instant.parse("2025-03-01T00:00:00Z"));
   private static final SimpleDateFormat ISO_8601_SDF = new SimpleDateFormat("yyyy-MM-dd");
   private static final Pattern escapeChars = Pattern.compile("[\t\n\r]");
   private static final String TSV_EXTENSION = ".tsv";
   private static final String YES = "YES";
   private static final String PNMC = "Participant Node Managers Committee";
   private static final String FILENAME_INVALID = "onlineButInvalid";
-  private static final String FILENAME_2022 = "toRescueIn2022";
+  private static final String FILENAME = "toRescueIn2022";
   private static final int PAGING_LIMIT = 100;
   // timeout in milliseconds for both the connection timeout and the response read timeout
   private static final int TIMEOUT_MILLIS = 500;
@@ -71,7 +108,7 @@ public class OrphanDatasetScanner {
   private final DatasetProcessStatusService statusService;
 
   private Map<String, List<String[]>> orphansByParticipant;
-  private List<String[]> orphansRescued2022;
+  private List<String[]> orphansRescued;
   private List<String[]> nonOrphansJustInvalid;
   private final File outputDirectory;
 
@@ -87,7 +124,7 @@ public class OrphanDatasetScanner {
     this.occurrenceSearchService = occurrenceSearchService;
     this.statusService = statusService;
     orphansByParticipant = Maps.newHashMap();
-    orphansRescued2022 = Lists.newArrayList();
+    orphansRescued = Lists.newArrayList();
     nonOrphansJustInvalid = Lists.newArrayList();
     outputDirectory = org.gbif.utils.file.FileUtils.createTempDir();
   }
@@ -108,11 +145,14 @@ public class OrphanDatasetScanner {
     do {
       datasetResults = datasetService.list(datasetPage);
       for (Dataset d : datasetResults.getResults()) {
-        if (datasets % 250 == 0) {
+        if (datasets % PAGING_LIMIT == 0) {
           LOG.info("Iterated over " + datasets + " datasets");
         }
-        LOG.debug("Dataset {}", d.getKey());
         datasets++;
+        if (d.getPublishingOrganizationKey().equals(Constants.PLAZI_ORG_KEY)) {
+          continue;
+        }
+        LOG.debug("{} ({})", d.getKey(), datasets);
 
         Organization organization = organizationCache.get(d.getPublishingOrganizationKey());
         if (organization == null) {
@@ -139,19 +179,14 @@ public class OrphanDatasetScanner {
               statusResults = statusService.listDatasetProcessStatus(d.getKey(), statusPage);
 
               List<DatasetProcessStatus> results = statusResults.getResults();
-              // check if latest crawl history has empty start date indicative of phantom crawl and potential false positive!
-              potentialFalsePositive = (results != null && !results.isEmpty() && results.get(0) != null
-                                                        && results.get(0).getStartedCrawling() == null);
-              if (potentialFalsePositive) {
-                LOG.info("PFP on {}: {}", d.getKey(), results.get(0));
-              }
-              // datasets that haven't been crawled yet, and registered before cutoff date are potential orphans
+
+              // datasets that haven't been crawled yet, but were registered before the cutoff date are potential orphans
               if (statusResults.getCount()==0 && beforeCutoff(d.getCreated())) {
                 orphaned = true;
               } else {
                 for (DatasetProcessStatus st : results) {
-                  LOG.debug("{} processing {}", d.getKey(), st);
-                  LOG.info("{} {} status {} time {}", d.getKey(), st.getCrawlJob().getAttempt(), st.getFinishReason(), st.getFinishedCrawling());
+                  LOG.debug("\t{} processing {}", d.getKey(), st);
+                  LOG.info("\t{} {} status {} time {}", d.getKey(), st.getCrawlJob().getAttempt(), st.getFinishReason(), st.getFinishedCrawling());
                   FinishReason finishReason = st.getFinishReason(); // NORMAL, USER_ABORT, ABORT, NOT_MODIFIED, UNKNOWN
 
                   if (finishReason == null || st.getFinishedCrawling() == null) {
@@ -174,7 +209,7 @@ public class OrphanDatasetScanner {
                     // Avoids the case where the not-modified file is an error page or similar.
 
                     String hash = dwcaHashFromCache(d.getKey().toString(), st.getCrawlJob().getAttempt());
-                    LOG.info("Hashed {} {} to {}", d.getKey(), st.getCrawlJob().getAttempt(), hash);
+                    LOG.info("\tHashed {} {} to {}", d.getKey(), st.getCrawlJob().getAttempt(), hash);
 
                     if (notModifiedDate == null || !notModifiedHash.equals(hash)) {
                       notModifiedDate = st.getFinishedCrawling();
@@ -198,7 +233,7 @@ public class OrphanDatasetScanner {
                     }
                     Date finishedCrawling = (notModifiedDate == null) ? st.getFinishedCrawling() : notModifiedDate;
 
-                    // check: was most recent crawl successful, and did it occur before cutoff?
+                    // check: was the most recent crawl successful, and did it occur before cutoff?
                     if (afterCutoff(finishedCrawling)) {
                       orphaned = false;
                       LOG.debug("\t{} is not orphaned, crawl {} on {}", d.getKey(), st.getCrawlJob().getAttempt(), finishedCrawling);
@@ -214,7 +249,7 @@ public class OrphanDatasetScanner {
                 }
               }
             } catch (Exception exception) {
-              LOG.warn("Failure on dataset " + d.getKey(), exception);
+              LOG.warn("\tFailure on dataset " + d.getKey(), exception);
             }
             statusPage.nextPage();
           } while (statusResults != null && !statusResults.isEndOfRecords());
@@ -225,17 +260,19 @@ public class OrphanDatasetScanner {
             Node node = nodeService.get(organization.getEndorsingNodeKey());
             String[] record =
               getRecord(d, organization, mostRecentCrawlEndpointType, mostRecentCrawlEndpointUri, mostRecentCrawlStatus,
-                mostRecentCrawlDate, String.valueOf(potentialFalsePositive).toUpperCase());
+                mostRecentCrawlDate);
 
             // Warning: excluding false positives that are online but not indexed because they are invalid! Note that fixing https://github.com/gbif/crawler/issues/9 would help discover these.
-            boolean online = Boolean.valueOf(record[20]); // corresponds to column "online?"
+            boolean online = Boolean.valueOf(record[19]); // corresponds to column "online?"
+            int numOccurrences = Integer.valueOf(record[4]);
+            int numUsages = Integer.valueOf(record[5]);
             if (online) {
               nonOrphansJustInvalid.add(record);
             }
             else {
               String key = (node.getParticipantTitle() == null) ? PNMC : node.getParticipantTitle();
               orphansByParticipant.computeIfAbsent(key, v -> Lists.newArrayList()).add(record);
-              orphansRescued2022.add(record.clone());
+              orphansRescued.add(record.clone());
             }
           }
         }
@@ -249,7 +286,7 @@ public class OrphanDatasetScanner {
     // write orphans to file, separated by participant
     writeMapToFiles(orphansByParticipant);
     // write all orphans to be rescued in 2022 to file
-    writeListToFiles(FILENAME_2022, orphansRescued2022);
+    writeListToFiles(FILENAME, orphansRescued);
   }
 
   /**
@@ -302,8 +339,8 @@ public class OrphanDatasetScanner {
         // logging below used to generate GitHub markdown table
         System.out.println("| " + p + " | " + datasets + " | " + installations.size() + " | " + numOccurrences + " | "
                            + countryOccurrenceCount + " | " + percentageOccurrencesOrphaned + " | "
-                           + "[View](https://github.com/gbif/watchdog/blob/master/lists/orphans201802/" + fileName
-                           + ") / [Download](https://raw.githubusercontent.com/gbif/watchdog/master/lists/orphans201802/"
+                           + "[View](https://github.com/gbif/watchdog/blob/master/lists/orphans202007/" + fileName
+                           + ") / [Download](https://raw.githubusercontent.com/gbif/watchdog/master/lists/orphans202007/"
                            + fileName + ") |");
       } catch (IOException e) {
         LOG.error("Exception while writing to output file: " + out.getAbsolutePath());
@@ -374,14 +411,12 @@ public class OrphanDatasetScanner {
    * @param mostRecentCrawlEndpointUri  URI of most recent crawled Endpoint
    * @param mostRecentCrawlStatus       Status of last crawl, either NORMAL, USER_ABORT, ABORT, NOT_MODIFIED, UNKNOWN
    * @param mostRecentCrawlDate         Date of most recent crawl in ISO 8601 format
-   * @param potentialFalsePositive      true if this dataset is potentially a false positive, false otherwise
    *
    * @return record as String array
    */
   @NotNull
   private String[] getRecord(Dataset dataset, Organization organization, String mostRecentCrawlEndpointType,
-    String mostRecentCrawlEndpointUri, String mostRecentCrawlStatus, String mostRecentCrawlDate,
-    String potentialFalsePositive) {
+    String mostRecentCrawlEndpointUri, String mostRecentCrawlStatus, String mostRecentCrawlDate) {
 
     Installation installation = installationService.get(dataset.getInstallationKey());
     Node node = nodeService.get(organization.getEndorsingNodeKey());
@@ -419,7 +454,7 @@ public class OrphanDatasetScanner {
       String.valueOf(hasEndpoints), String.valueOf(numOccurrences), String.valueOf(numNameUsages),
       installation.getKey().toString(), installation.getType().toString(), organization.getKey().toString(),
       organization.getTitle(), node.getParticipantTitle(), country.getTitle(), registered, mostRecentCrawlEndpointType,
-      mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus, potentialFalsePositive, YES,
+      mostRecentCrawlEndpointUri, mostRecentCrawlDate, mostRecentCrawlStatus, YES,
       String.valueOf(imageCount), String.valueOf(online).toUpperCase()};
   }
 
@@ -470,8 +505,6 @@ public class OrphanDatasetScanner {
       req.addParameter(OccurrenceSearchParameter.MEDIA_TYPE, MediaType.StillImage);
       req.setLimit(1);
       response = occurrenceSearchService.search(req);
-    } catch (ClientHandlerException e) {
-      LOG.error("Unable to retrieve image count for dataset" + datasetKey.toString(), e);
     } catch (ServiceUnavailableException e) {
       LOG.error("Unable to retrieve image count for dataset" + datasetKey.toString(), e);
     }
@@ -495,12 +528,20 @@ public class OrphanDatasetScanner {
     if (organization.getEndorsingNodeKey().equals(UUID.fromString("ffb07bec-2d10-492d-9c37-361fe0b79427"))) {
       return true;
     }
+    // ignore OBIS
+    // if (organization.getEndorsingNodeKey().equals(UUID.fromString("ba0670b9-4186-41e6-8e70-f9cb3065551a"))) {
+    //   return true;
+    // }
+    // eBird, because it gets published once a year without fail
+     if (dataset.getKey().equals(UUID.fromString("4fa7b334-ce0d-4e88-aaae-2e0c138d049e"))) {
+       return true;
+     }
     return false;
   }
 
   /**
    * Method derived from https://stackoverflow.com/a/3584332 and tested in OrphanDatasetScannerTest.
-   * Pings a HTTP URL with HEAD request and returns <code>true</code> if the response code is in 200-399 range.
+   * Pings an HTTP URL with HEAD request and returns <code>true</code> if the response code is in 200-399 range.
    *
    * @param url     The HTTP URL to be pinged
    *
@@ -511,14 +552,32 @@ public class OrphanDatasetScanner {
   public static boolean pingURL(String url) {
     // Endpoints not actually online, but nevertheless give a successful response:
     // http://bijh.zrc-sazu.si/DIGIR/digir.php Digir Installation from Slovenia 5ff785c2-f762-11e1-a439-00145eb45e9a
-    // if (url.equalsIgnoreCase("http://bijh.zrc-sazu.si/DIGIR/digir.php")) {
-    //   return false;
-    // }
+    if (url.equalsIgnoreCase("http://bijh.zrc-sazu.si/DIGIR/digir.php")) {
+      return false;
+    }
+    // http://w2.scarmarbin.be/digir2/digir.php DiGIR installation from ANTABIF 601e20f6-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://w2.scarmarbin.be/digir2/digir.php")) {
+      return false;
+    }
+    // http://www.ots.ac.cr/herbarium/gbif/dwca-herbariumlc.zip HTTP installation from Costa Rica 9976bbce-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://www.ots.ac.cr/herbarium/gbif/dwca-herbariumlc.zip")) {
+      return false;
+    }
+    // http://acoi.ci.uc.pt/digir/www/DiGIR.php DiGIR installation from Portugal 5ff54d98-f762-11e1-a439-00145eb45e9a
+    if (url.equalsIgnoreCase("http://acoi.ci.uc.pt/digir/www/DiGIR.php")) {
+      return false;
+    }
+    // http://www.gbif.org.nz/tapirlink/tapir.php/NZBRN TAPIR installation from New Zealand that redirects to GBIF.org
+    if (url.equalsIgnoreCase("http://www.gbif.org.nz/tapirlink/tapir.php/NZBRN")) {
+      return false;
+    }
+
     try {
       HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
       connection.setConnectTimeout(TIMEOUT_MILLIS);
       connection.setReadTimeout(TIMEOUT_MILLIS);
       connection.setRequestMethod("HEAD");
+      connection.setInstanceFollowRedirects(true);
       int responseCode = connection.getResponseCode();
       connection.disconnect();
       return (200 <= responseCode && responseCode <= 399);
@@ -558,6 +617,7 @@ public class OrphanDatasetScanner {
     PagingResponse<Dataset> datasetResults;
     do {
       datasetResults = datasetService.list(datasetPage);
+      //datasetService.list(new DatasetRequestSearchParams());
       for (Dataset d : datasetResults.getResults()) {
         datasets++;
         // iterate through the dataset's crawl history

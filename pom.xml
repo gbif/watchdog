@@ -5,7 +5,7 @@
   <parent>
     <groupId>org.gbif</groupId>
     <artifactId>motherpom</artifactId>
-    <version>37</version>
+    <version>60</version>
   </parent>
 
   <artifactId>watchdog</artifactId>
@@ -16,33 +16,39 @@
   <description>Project functioning as a watchful guardian of content in the GBIF network, especially against datasets going offline.</description>
 
   <properties>
-    <checklistbank-ws-client.version>2.99</checklistbank-ws-client.version>
-    <gbif-common.version>0.53</gbif-common.version>
-    <gbif-httputils.version>1.1</gbif-httputils.version>
-    <gbif-metadata-profile.version>1.1.1</gbif-metadata-profile.version>
-    <metrics-ws-client.version>1.2</metrics-ws-client.version>
-    <occurrence-ws-client.version>0.175</occurrence-ws-client.version>
-    <registry-ws-client.version>3.77</registry-ws-client.version>
+    <gbif-api.version>2.4.0</gbif-api.version>
+    <checklistbank-ws-client.version>3.0.9</checklistbank-ws-client.version>
+    <gbif-common.version>0.60</gbif-common.version>
+    <gbif-httputils.version>1.4</gbif-httputils.version>
+    <gbif-metadata-profile.version>2.9</gbif-metadata-profile.version>
+    <metrics-ws-client.version>2.0.4</metrics-ws-client.version>
+    <occurrence-ws-client.version>1.1.19</occurrence-ws-client.version>
+    <registry-ws-client.version>4.2.9</registry-ws-client.version>
 
-    <guava.version>18.0</guava.version>
-    <guice.version>4.0</guice.version>
-    <httpclient.version>4.3.6</httpclient.version>
-    <jdkLevel>1.8</jdkLevel>
-    <junit.version>4.12</junit.version>
-    <logback.version>1.1.7</logback.version>
-    <servletapi.version>3.0.1</servletapi.version>
-    <slf4j.version>1.7.21</slf4j.version>
+    <guava.version>33.5.0-jre</guava.version>
+    <guice.version>7.0.0</guice.version>
+    <httpclient.version>4.5.14</httpclient.version>
+    <jdkLevel>17</jdkLevel>
+    <junit.version>4.13.1</junit.version>
+    <logback.version>1.5.21</logback.version>
+    <jakarta.servlet-api.version>6.1.0</jakarta.servlet-api.version>
+    <slf4j.version>2.0.17</slf4j.version>
   </properties>
 
   <repositories>
     <repository>
       <id>gbif-all</id>
-      <url>http://repository.gbif.org/content/groups/gbif</url>
+      <url>https://repository.gbif.org/content/groups/gbif</url>
     </repository>
   </repositories>
 
   <dependencies>
     <!-- GBIF -->
+    <dependency>
+      <groupId>org.gbif</groupId>
+      <artifactId>gbif-api</artifactId>
+      <version>${gbif-api.version}</version>
+    </dependency>
     <dependency>
       <groupId>org.gbif.registry</groupId>
       <artifactId>registry-ws-client</artifactId>
@@ -75,7 +81,7 @@
     </dependency>
     <dependency>
       <groupId>org.gbif</groupId>
-      <artifactId>gbif-metadata-profile</artifactId>
+      <artifactId>gbif-metadata-profile-eml</artifactId>
       <version>${gbif-metadata-profile.version}</version>
     </dependency>
 
@@ -92,9 +98,10 @@
     </dependency>
 
     <dependency>
-      <groupId>javax.servlet</groupId>
-      <artifactId>javax.servlet-api</artifactId>
-      <version>${servletapi.version}</version>
+      <groupId>jakarta.servlet</groupId>
+      <artifactId>jakarta.servlet-api</artifactId>
+      <version>${jakarta.servlet-api.version}</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.httpcomponents</groupId>
@@ -129,7 +136,7 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
-        <version>1.6.0</version>
+        <version>3.6.2</version>
         <executions>
           <execution>
             <goals>

@@ -1,26 +1,27 @@
-<configuration>
+<configuration debug="true">
 
-  <property name="defaultPattern" value="%-5level [%date{'HH:mm:ss,SSSZ'}] %logger: %msg%n%xEx"/>
+    <property name="defaultPattern" value="%-5level [%date{'HH:mm:ss,SSSZ'}] %logger: %msg%n%xEx"/>
 
-  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-      <level>INFO</level>
-    </filter>
-    <encoder>
-      <pattern>${defaultPattern}</pattern>
-    </encoder>
-  </appender>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>DEBUG</level>
+        </filter>
+        <encoder>
+            <pattern>${defaultPattern}</pattern>
+        </encoder>
+    </appender>
 
-  <appender name="FILE" class="ch.qos.logback.core.FileAppender">
-    <file>watchdog.log</file>
-    <encoder>
-      <pattern>${defaultPattern}</pattern>
-    </encoder>
-  </appender>
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>watchdog.log</file>
+        <encoder>
+            <pattern>${defaultPattern}</pattern>
+        </encoder>
+    </appender>
 
-  <logger name="org.gbif.OrphanDatasetScanner" level="DEBUG"/>
+    <logger name="org.gbif.OrphanDatasetScanner" level="DEBUG"/>
 
-  <root level="INFO">
-    <appender-ref ref="CONSOLE"/>
-  </root>
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
 </configuration>
