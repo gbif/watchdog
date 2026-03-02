@@ -20,9 +20,10 @@
     <gbif-common.version>0.60</gbif-common.version>
     <gbif-httputils.version>1.4</gbif-httputils.version>
     <registry-ws-client.version>4.2.9</registry-ws-client.version>
+    <gbif-metadata-profile.version>2.9</gbif-metadata-profile.version>
+    <occurrence-ws-client.version>1.1.19</occurrence-ws-client.version>
 
     <guava.version>33.5.0-jre</guava.version>
-    <guice.version>7.0.0</guice.version>
     <httpclient.version>4.5.14</httpclient.version>
     <jdkLevel>17</jdkLevel>
     <junit.version>4.13.1</junit.version>
@@ -60,13 +61,18 @@
       <artifactId>gbif-httputils</artifactId>
       <version>${gbif-httputils.version}</version>
     </dependency>
+    <dependency>
+      <groupId>org.gbif</groupId>
+      <artifactId>gbif-metadata-profile-eml</artifactId>
+      <version>${gbif-metadata-profile.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.gbif.occurrence</groupId>
+      <artifactId>occurrence-ws-client</artifactId>
+      <version>${occurrence-ws-client.version}</version>
+    </dependency>
 
     <!-- Google -->
-    <dependency>
-      <groupId>com.google.inject</groupId>
-      <artifactId>guice</artifactId>
-      <version>${guice.version}</version>
-    </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
