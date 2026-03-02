@@ -1,7 +1,10 @@
 package org.gbif;
 
-import freemarker.template.TemplateException;
-import org.gbif.api.model.registry.*;
+import org.gbif.api.model.registry.Dataset;
+import org.gbif.api.model.registry.Endpoint;
+import org.gbif.api.model.registry.MachineTag;
+import org.gbif.api.model.registry.Node;
+import org.gbif.api.model.registry.Organization;
 import org.gbif.api.service.registry.DatasetService;
 import org.gbif.api.service.registry.NodeService;
 import org.gbif.api.service.registry.OrganizationService;
@@ -44,7 +47,7 @@ public class DatasetRescueFromXmlCache {
    * @param datasetKey GBIF datasetKey (UUID)
    */
   private void rescue(String datasetKey)
-    throws IOException, ParserConfigurationException, SAXException, TemplateException, NoSuchFieldException,
+    throws IOException, ParserConfigurationException, SAXException, NoSuchFieldException,
     InterruptedException, URISyntaxException {
 
     UUID uuid = UUID.fromString(datasetKey);
@@ -114,7 +117,7 @@ public class DatasetRescueFromXmlCache {
   }
 
   public static void main(String... args)
-    throws ParseException, IOException, ParserConfigurationException, SAXException, TemplateException,
+    throws ParseException, IOException, ParserConfigurationException, SAXException,
     NoSuchFieldException, InterruptedException, URISyntaxException {
     WatchdogModule watchdogModule = new WatchdogModule();
     DatasetRescueFromXmlCache rescuer = new DatasetRescueFromXmlCache(watchdogModule.setupDatasetService(),

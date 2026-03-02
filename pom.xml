@@ -17,12 +17,8 @@
 
   <properties>
     <gbif-api.version>2.4.0</gbif-api.version>
-    <checklistbank-ws-client.version>3.0.9</checklistbank-ws-client.version>
     <gbif-common.version>0.60</gbif-common.version>
     <gbif-httputils.version>1.4</gbif-httputils.version>
-    <gbif-metadata-profile.version>2.9</gbif-metadata-profile.version>
-    <metrics-ws-client.version>2.0.4</metrics-ws-client.version>
-    <occurrence-ws-client.version>1.1.19</occurrence-ws-client.version>
     <registry-ws-client.version>4.2.9</registry-ws-client.version>
 
     <guava.version>33.5.0-jre</guava.version>
@@ -60,29 +56,9 @@
       <version>${gbif-common.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.gbif.occurrence</groupId>
-      <artifactId>occurrence-ws-client</artifactId>
-      <version>${occurrence-ws-client.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.gbif.metrics</groupId>
-      <artifactId>metrics-ws-client</artifactId>
-      <version>${metrics-ws-client.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.gbif.checklistbank</groupId>
-      <artifactId>checklistbank-ws-client</artifactId>
-      <version>${checklistbank-ws-client.version}</version>
-    </dependency>
-    <dependency>
       <groupId>org.gbif</groupId>
       <artifactId>gbif-httputils</artifactId>
       <version>${gbif-httputils.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.gbif</groupId>
-      <artifactId>gbif-metadata-profile-eml</artifactId>
-      <version>${gbif-metadata-profile.version}</version>
     </dependency>
 
     <!-- Google -->

@@ -12,6 +12,7 @@
     </appender>
 
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <append>false</append>
         <file>watchdog.log</file>
         <encoder>
             <pattern>${defaultPattern}</pattern>
@@ -19,6 +20,8 @@
     </appender>
 
     <logger name="org.gbif.OrphanDatasetScanner" level="DEBUG"/>
+    <logger name="org.gbif.dwc" level="WARN"/>
+    <logger name="org.gbif.common.parsers" level="ERROR"/>
 
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>

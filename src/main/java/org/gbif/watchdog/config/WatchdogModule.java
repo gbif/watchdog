@@ -3,8 +3,6 @@ package org.gbif.watchdog.config;
 import org.gbif.api.service.checklistbank.DatasetMetricsService;
 import org.gbif.api.service.occurrence.OccurrenceSearchService;
 import org.gbif.api.service.registry.*;
-import org.gbif.checklistbank.ws.client.DatasetMetricsClient;
-import org.gbif.occurrence.ws.client.OccurrenceWsSearchClient;
 import org.gbif.registry.ws.client.*;
 import org.gbif.utils.file.properties.PropertiesUtil;
 import org.gbif.ws.client.ClientBuilder;
@@ -68,14 +66,6 @@ public class WatchdogModule {
 
   public InstallationService setupInstallationService() {
     return clientBuilder.build(InstallationClient.class);
-  }
-
-  public DatasetMetricsService setupDatasetMetricsService() {
-    return clientBuilder.build(DatasetMetricsClient.class);
-  }
-
-  public OccurrenceSearchService setupOccurrenceSearchService() {
-    return clientBuilder.build(OccurrenceWsSearchClient.class);
   }
 
   /**
