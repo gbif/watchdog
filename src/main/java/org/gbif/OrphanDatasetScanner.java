@@ -126,57 +126,12 @@ public class OrphanDatasetScanner {
     return false;
   }
 
-
-  /**
-   * Iterates over all datasets registered with GBIF checking if their first crawl history is a phantom crawl,
-   * meaning it has no start date.
-   */
-  public void scanPhantoms() {
-    PagingRequest datasetPage = new PagingRequest(0, PAGING_LIMIT);
-    int datasets = 0;
-    int phantoms = 0;
-    // iterate through all datasets
-    PagingResponse<Dataset> datasetResults;
-    do {
-      datasetResults = datasetService.list(datasetPage);
-      long total = datasetResults.getCount();
-      for (Dataset d : datasetResults.getResults()) {
-        if (datasets % PAGING_LIMIT == 0) {
-          LOG.info("Iterated over " + datasets + "/" + total + " datasets");
-        }
-        datasets++;
-        // iterate through the dataset's crawl history
-        PagingResponse<DatasetProcessStatus> statusResults = null;
-        PagingRequest statusPage = new PagingRequest(0, PAGING_LIMIT);
-        do {
-          try {
-            statusResults = statusService.listDatasetProcessStatus(d.getKey(), statusPage);
-            List<DatasetProcessStatus> results = statusResults.getResults();
-            // check latest crawl history has empty start date (indicative of phantom crawl)
-            boolean phantom = (results != null && !results.isEmpty() && results.get(0) != null && results.get(0).getStartedCrawling() == null);
-
-            if (phantom) {
-              phantoms++;
-              LOG.error("Phantom crawl for dataset: " + d.getKey());
-            }
-          } catch (Exception exception) {
-            LOG.error("Failure iterating: Dataset " + d.getKey() + " Exception: " + exception.getMessage());
-          }
-          statusPage.nextPage();
-        } while (statusResults != null && !statusResults.isEndOfRecords());
-      } datasetPage.nextPage();
-    } while (!datasetResults.isEndOfRecords());
-    LOG.info("Total # of datasets: " + datasets);
-    LOG.info("Total # of phantom crawls: " + phantoms);
-  }
-
   public static void main(String[] args) throws ParseException, IOException {
     WatchdogModule watchdogModule = new WatchdogModule();
 
     OrphanDatasetScanner scanner = new OrphanDatasetScanner(watchdogModule.setupDatasetService(),
       watchdogModule.setupOrganizationService(), watchdogModule.setupDatasetProcessStatusService());
 
-//    scanner.scan();
-    scanner.scanPhantoms();
+    scanner.scan();
   }
 }
