@@ -19,6 +19,7 @@ import org.gbif.ws.client.ClientBuilder;
 import org.gbif.ws.json.JacksonJsonObjectMapperProvider;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Properties;
 
 public class WatchdogModule {
@@ -35,6 +36,7 @@ public class WatchdogModule {
       .withUrl(properties.getProperty("api.url"))
       .withCredentials(properties.getProperty("gbif.user"), properties.getProperty("gbif.password"))
       .withObjectMapper(JacksonJsonObjectMapperProvider.getObjectMapperWithBuilderSupport())
+      .withExponentialBackoffRetry(Duration.ofSeconds(10), 2, 10, Duration.ofMinutes(2))
       .withFormEncoder();
   }
 
