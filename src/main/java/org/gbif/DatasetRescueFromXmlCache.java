@@ -42,14 +42,9 @@ public class DatasetRescueFromXmlCache {
   }
 
   /**
-   * Downloads a dataset from GBIF.org in DwC-A format using its GBIF datasetKey.
-   *
    * @param datasetKey GBIF datasetKey (UUID)
    */
-  private void rescue(String datasetKey)
-    throws IOException, ParserConfigurationException, SAXException, NoSuchFieldException,
-    InterruptedException, URISyntaxException {
-
+  private void rescue(String datasetKey) throws URISyntaxException {
     UUID uuid = UUID.fromString(datasetKey);
     Dataset dataset = datasetService.get(uuid);
     Organization organization = organizationService.get(dataset.getPublishingOrganizationKey());
@@ -66,16 +61,16 @@ public class DatasetRescueFromXmlCache {
       System.exit(1);
     }
 
-    File dwca = new File("./"+datasetKey+".zip");
-    if (!dwca.exists()) {
-      LOG.error("Dataset {} ZIP file doesn't exist at {}", datasetKey, dwca);
+    File archive = new File("./"+datasetKey+".zip");
+    if (!archive.exists()) {
+      LOG.error("Dataset {} ZIP file doesn't exist at {}", datasetKey, archive);
       System.exit(2);
     }
 
     MachineTag cacheRescue = new MachineTag();
     cacheRescue.setNamespace("orphans.gbif.org");
     cacheRescue.setName("crawlerArchiveCacheTime");
-    cacheRescue.setValue(""+dwca.lastModified());
+    cacheRescue.setValue(""+archive.lastModified());
     datasetService.addMachineTag(uuid, cacheRescue);
 
     MachineTag orphanExport = new MachineTag();
@@ -101,7 +96,6 @@ public class DatasetRescueFromXmlCache {
       }
 
       String endPointDirectory = null;
-
       if (node.getType() == NodeType.COUNTRY) {
         endPointDirectory = organization.getCountry().getIso2LetterCode().toUpperCase();
       } else {

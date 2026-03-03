@@ -71,40 +71,37 @@ public class OrphanDatasetScanner {
     Map<UUID, Organization> organizationCache = new HashMap<>();
 
     // iterate through all datasets
-    //PagingResponse<Dataset> datasetResults;
-    //do {
-    //datasetResults = datasetService.list(datasetPage);
-    List<Dataset> datasetResults = new ArrayList<>();
-    datasetResults.add(datasetService.get(UUID.fromString("a22711bc-655f-43be-933b-783142b0c3db")));
-    datasetResults.add(datasetService.get(UUID.fromString("2d5ab021-3e77-4760-a636-0bcd2c6564a9")));
-    for (Dataset d : datasetResults) { //.getResults()) {
-      if (datasets % PAGING_LIMIT == 0) {
-        LOG.info("Iterated over " + datasets + " datasets");
-      }
-      datasets++;
-      if (d.getPublishingOrganizationKey().equals(Constants.PLAZI_ORG_KEY)) {
-        continue;
-      }
-      LOG.debug("{} ({})", d.getKey(), datasets);
-
-      Organization organization = organizationCache.get(d.getPublishingOrganizationKey());
-      if (organization == null) {
-        organization = organizationService.get(d.getPublishingOrganizationKey());
-        organizationCache.put(d.getPublishingOrganizationKey(), organization);
-      }
-
-      if (!toIgnore(d, organization)) {
-        Pair<Date,Integer> lastGoodCrawl = lastUsefulCrawl.lastUsefulCrawl(d);
-
-        // check: was the most recent crawl successful, and did it occur before cutoff?
-        if (lastGoodCrawl.getLeft().after(D_CUTOFF)) {
-          LOG.debug("\t{} is not orphaned, crawl {} on {}", d.getKey(), lastGoodCrawl.getRight(), lastGoodCrawl.getLeft());
-        } else {
-          LOG.info("\t{}   IS   orphaned, crawl {} on {}", d.getKey(), lastGoodCrawl.getRight(), lastGoodCrawl.getLeft());
+    PagingResponse<Dataset> datasetResults;
+    do {
+      datasetResults = datasetService.list(datasetPage);
+      for (Dataset d : datasetResults.getResults()) {
+        if (datasets % PAGING_LIMIT == 0) {
+          LOG.info("Iterated over " + datasets + " datasets");
         }
-      }
-    } datasetPage.nextPage();
-    //} while (!datasetResults.isEndOfRecords());
+        datasets++;
+        if (d.getPublishingOrganizationKey().equals(Constants.PLAZI_ORG_KEY)) {
+          continue;
+        }
+        LOG.debug("{} ({})", d.getKey(), datasets);
+
+        Organization organization = organizationCache.get(d.getPublishingOrganizationKey());
+        if (organization == null) {
+          organization = organizationService.get(d.getPublishingOrganizationKey());
+          organizationCache.put(d.getPublishingOrganizationKey(), organization);
+        }
+
+        if (!toIgnore(d, organization)) {
+          Pair<Date,Integer> lastGoodCrawl = lastUsefulCrawl.lastUsefulCrawl(d);
+
+          // check: was the most recent crawl successful, and did it occur before cutoff?
+          if (lastGoodCrawl.getLeft().after(D_CUTOFF)) {
+            LOG.debug("\t{} is not orphaned, crawl {} on {}", d.getKey(), lastGoodCrawl.getRight(), lastGoodCrawl.getLeft());
+          } else {
+            LOG.info("\t{}   IS   orphaned, crawl {} on {}", d.getKey(), lastGoodCrawl.getRight(), lastGoodCrawl.getLeft());
+          }
+        }
+      } datasetPage.nextPage();
+    } while (!datasetResults.isEndOfRecords());
     LOG.info("Finished after checking {} datasets", datasets);
   }
 
@@ -142,9 +139,10 @@ public class OrphanDatasetScanner {
     PagingResponse<Dataset> datasetResults;
     do {
       datasetResults = datasetService.list(datasetPage);
+      long total = datasetResults.getCount();
       for (Dataset d : datasetResults.getResults()) {
         if (datasets % PAGING_LIMIT == 0) {
-          LOG.info("Iterated over " + datasets + " datasets");
+          LOG.info("Iterated over " + datasets + "/" + total + " datasets");
         }
         datasets++;
         // iterate through the dataset's crawl history

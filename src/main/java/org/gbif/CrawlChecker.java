@@ -118,6 +118,9 @@ public class CrawlChecker {
 
       BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
       String line = reader.readLine();
+      if (line == null) {
+        return null;
+      }
       String hash = line.split(" ")[0];
 
       int exitVal = process.waitFor();

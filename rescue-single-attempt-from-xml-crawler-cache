@@ -13,7 +13,7 @@ touch -r $1-$2.tar.xz $1.zip
 echo "Checking new archive is made"
 ls -l $1.zip
 
-mvn exec:java -Dexec.mainClass=org.gbif.CachedXmlArchiveRescuer -Dexec.args=$1
+mvn exec:java -Dexec.mainClass=org.gbif.DatasetRescueFromXmlCache -Dexec.args=$1
 
 pub=$(curl -Ss https://api.gbif.org/v1/dataset/$1 | jq -r .publishingOrganizationKey)
 
@@ -27,5 +27,5 @@ else
     participant=$node
 fi
 
-ssh static-vh.gbif.org mkdir -p /var/www/html/orphans.gbif.org/$participant
-rsync -ptv $1.zip static-vh.gbif.org:/var/www/html/orphans.gbif.org/$participant/$1.zip
+ssh mblissett@orphans.gbif.org mkdir -p /var/www/html/orphans.gbif.org/$participant
+rsync -ptv $1.zip mblissett@orphans.gbif.org:/var/www/html/orphans.gbif.org/$participant/$1.zip
