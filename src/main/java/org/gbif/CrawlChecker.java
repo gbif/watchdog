@@ -7,6 +7,7 @@ import org.gbif.api.model.crawler.DatasetProcessStatus;
 import org.gbif.api.model.crawler.FinishReason;
 import org.gbif.api.model.registry.Dataset;
 import org.gbif.api.service.registry.DatasetProcessStatusService;
+import org.gbif.api.vocabulary.EndpointType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,8 +20,6 @@ import java.util.List;
 import static org.gbif.OrphanDatasetScanner.D_CUTOFF;
 import static org.gbif.api.model.crawler.FinishReason.NORMAL;
 import static org.gbif.api.model.crawler.FinishReason.NOT_MODIFIED;
-import static org.gbif.api.vocabulary.EndpointType.DWC_ARCHIVE;
-import static org.gbif.api.vocabulary.EndpointType.EML;
 
 public class CrawlChecker {
   private static Logger LOG = LoggerFactory.getLogger(CrawlChecker.class);
@@ -51,12 +50,15 @@ public class CrawlChecker {
           return Pair.of(null, -1);
         } else {
           for (DatasetProcessStatus st : results) {
-            LOG.debug("\t{} processing {}", d.getKey(), st);
-            LOG.info("\t{} {} status {} time {}", d.getKey(), st.getCrawlJob().getAttempt(), st.getFinishReason(), st.getFinishedCrawling());
+            String datasetKey = d.getKey().toString();
+            int attempt = st.getCrawlJob().getAttempt();
+            EndpointType endpointType = st.getCrawlJob().getEndpointType();
+            LOG.debug("\t{} processing {}", datasetKey, st);
+            LOG.info("\t{} {} status {} time {}", datasetKey, attempt, st.getFinishReason(), st.getFinishedCrawling());
             FinishReason finishReason = st.getFinishReason(); // NORMAL, USER_ABORT, ABORT, NOT_MODIFIED, UNKNOWN
 
             if (finishReason == null || st.getFinishedCrawling() == null) {
-              LOG.info("\t{} is currently crawling (attempt {})", d.getKey(), st.getCrawlJob().getAttempt());
+              LOG.info("\t{} is currently crawling (attempt {})", datasetKey, attempt);
               // Current crawl
               continue;
             }
@@ -66,13 +68,13 @@ public class CrawlChecker {
             }
 
             if (finishReason == NOT_MODIFIED) {
-              LOG.debug("\t{} is not modified, crawl {} on {}", d.getKey(), st.getCrawlJob().getAttempt(), st.getFinishedCrawling());
+              LOG.debug("\t{} is not modified, crawl {} on {}", datasetKey, attempt, st.getFinishedCrawling());
 
               // Record the hash of the not-modified file, and check it matches with the hash of the earlier normal file.
               // Avoids the case where the not-modified file is an error page or similar.
 
-              String hash = dwcaHashFromCache(d.getKey().toString(), st.getCrawlJob().getAttempt());
-              LOG.info("\tHashed {} {} to {}", d.getKey(), st.getCrawlJob().getAttempt(), hash);
+              String hash = hashFromCache(datasetKey, attempt, endpointType);
+              LOG.info("\tHashed {} {} {} to {}", datasetKey, attempt, endpointType, hash);
 
               if (notModifiedDate == null || !notModifiedHash.equals(hash)) {
                 notModifiedDate = st.getFinishedCrawling();
@@ -83,13 +85,8 @@ public class CrawlChecker {
 
             if (finishReason == NORMAL) {
               // Use most recent not-modified date if there are more recent crawls with the same data
-              String hash;
-              if (st.getCrawlJob().getEndpointType() == DWC_ARCHIVE || st.getCrawlJob().getEndpointType() == EML) {
-                hash = dwcaHashFromCache(d.getKey().toString(), st.getCrawlJob().getAttempt());
-                LOG.info("\tHashed {} {} to {}", d.getKey(), st.getCrawlJob().getAttempt(), hash);
-              } else {
-                hash = "Not_DWCA_or_EML";
-              }
+              String hash = hashFromCache(datasetKey, attempt, endpointType);
+              LOG.info("\tHashed {} {} {} to {}", datasetKey, attempt, endpointType, hash);
               if (notModifiedDate != null && !notModifiedHash.equals(hash)) {
                 // Hashes don't match, ignore the subsequent not-modified crawl (this must be normal, abort, not_modified).
                 notModifiedDate = st.getFinishedCrawling();
@@ -97,7 +94,7 @@ public class CrawlChecker {
               }
 
               Date finishedCrawling = (notModifiedDate == null) ? st.getFinishedCrawling() : notModifiedDate;
-              return Pair.of(finishedCrawling, st.getCrawlJob().getAttempt());
+              return Pair.of(finishedCrawling, attempt);
             }
           }
         }
@@ -110,9 +107,35 @@ public class CrawlChecker {
     return null;
   }
 
-  private String dwcaHashFromCache(String datasetKey, int attempt) {
+  private String hashFromCache(String datasetKey, int attempt, EndpointType endpointType) {
+    final String path;
+    switch (endpointType) {
+      case CAMTRAP_DP:
+        path = "storage/camtrapdp/"+datasetKey+"/"+datasetKey+"."+attempt+".camtrapdp";
+        break;
+      case DWC_ARCHIVE:
+      case EML:
+        path = "storage/dwca/"+datasetKey+"/"+datasetKey+"."+attempt+".dwca";
+        break;
+      case DIGIR:
+      case TAPIR:
+      case BIOCASE:
+      case DIGIR_MANIS:
+        path = "storage/xml/"+datasetKey+"/"+attempt+".tar.xz";
+        break;
+
+      case BIOCASE_XML_ARCHIVE:
+        path = "storage/abcda/"+datasetKey+"."+attempt+".abcda";
+        break;
+
+      default:
+        LOG.error("\t{}: Unknown endpoint type {}", datasetKey, endpointType);
+        return null;
+    }
+
     ProcessBuilder processBuilder = new ProcessBuilder();
-    processBuilder.command("ssh", "crap@prodcrawler1-vh.gbif.org", "md5sum", "storage/dwca/"+datasetKey+"/"+datasetKey+"."+attempt+".dwca");
+    //LOG.info("\t{}: Hashing {}", datasetKey, path);
+    processBuilder.command("ssh", "crap@prodcrawler1-vh.gbif.org", "md5sum", path);
     try {
       Process process = processBuilder.start();
 

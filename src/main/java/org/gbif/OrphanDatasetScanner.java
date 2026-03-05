@@ -6,12 +6,12 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.gbif.api.model.Constants;
 import org.gbif.api.model.common.paging.PagingRequest;
 import org.gbif.api.model.common.paging.PagingResponse;
-import org.gbif.api.model.crawler.DatasetProcessStatus;
 import org.gbif.api.model.registry.Dataset;
 import org.gbif.api.model.registry.Organization;
 import org.gbif.api.service.registry.DatasetProcessStatusService;
 import org.gbif.api.service.registry.DatasetService;
 import org.gbif.api.service.registry.OrganizationService;
+import org.gbif.api.vocabulary.DatasetType;
 import org.gbif.watchdog.config.WatchdogModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,13 +94,16 @@ public class OrphanDatasetScanner {
           Pair<Date,Integer> lastGoodCrawl = lastUsefulCrawl.lastUsefulCrawl(d);
 
           // check: was the most recent crawl successful, and did it occur before cutoff?
-          if (lastGoodCrawl.getLeft().after(D_CUTOFF)) {
+          if (lastGoodCrawl == null) {
+            LOG.warn("\t{}   IS    UNBORN , never crawled", d.getKey());
+          } else if (lastGoodCrawl.getLeft().after(D_CUTOFF)) {
             LOG.debug("\t{} is not orphaned, crawl {} on {}", d.getKey(), lastGoodCrawl.getRight(), lastGoodCrawl.getLeft());
           } else {
             LOG.info("\t{}   IS   orphaned, crawl {} on {}", d.getKey(), lastGoodCrawl.getRight(), lastGoodCrawl.getLeft());
           }
         }
-      } datasetPage.nextPage();
+      }
+       datasetPage.nextPage();
     } while (!datasetResults.isEndOfRecords());
     LOG.info("Finished after checking {} datasets", datasets);
   }
@@ -115,6 +118,11 @@ public class OrphanDatasetScanner {
    * @return true if dataset should be skipped, false otherwise
    */
   private boolean toIgnore(Dataset dataset, Organization organization) {
+    // ignore metadata-only, as there's no point rescuing them
+    if (dataset.getType() == DatasetType.METADATA) {
+      return true;
+    }
+
     // ignore the Catalogue of Life
     if (dataset.getPublishingOrganizationKey().equals(UUID.fromString("f4ce3c03-7b38-445e-86e6-5f6b04b649d4"))) {
       return true;

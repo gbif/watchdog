@@ -53,7 +53,7 @@ public class DatasetRescueFromAbcdaCache {
     ProcessBuilder processBuilder = new ProcessBuilder();
     processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
     processBuilder.command("ssh", "crap@cli1.gbif.org",
-      "stat", "--dereference", "--format", "%Y", "storage/dwca/"+datasetKey+"/"+datasetKey+"."+attempt+".dwca");
+      "stat", "--dereference", "--format", "%Y", "storage/abcda/"+datasetKey+"."+attempt+".abcda");
     try {
       Process process = processBuilder.start();
       String result = new String(process.getInputStream().readAllBytes());
@@ -62,7 +62,7 @@ public class DatasetRescueFromAbcdaCache {
         Instant modTime = Instant.ofEpochSecond(Long.parseLong(result.trim()));
         return modTime;
       }
-      LOG.error("Failed to read {}.{}.dwca", datasetKey, attempt);
+      LOG.error("Failed to read {}.{}.abcda", datasetKey, attempt);
     } catch (IOException e) {
       e.printStackTrace();
     } catch (InterruptedException e) {
@@ -86,7 +86,7 @@ public class DatasetRescueFromAbcdaCache {
     processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
     processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
     processBuilder.command("scp", "-p",
-      "crap@cli1.gbif.org:storage/dwca/"+datasetKey+"/"+datasetKey+"."+attempt+".dwca",
+      "crap@cli1.gbif.org:storage/abcda/"+datasetKey+"."+attempt+".abcda",
       "mblissett@orphans.gbif.org:/var/www/html/orphans.gbif.org/"+subdir+"/"+datasetKey+"."+attempt+".zip");
 
     try {
@@ -101,10 +101,10 @@ public class DatasetRescueFromAbcdaCache {
       Process process = processBuilder.start();
       int exitVal = process.waitFor();
       if (exitVal == 0) {
-        LOG.info("Copied {}.{}.dwca to https://orphans.gbif.org/{}/{}.{}.zip", datasetKey, attempt, subdir, datasetKey, attempt);
+        LOG.info("Copied {}.{}.abcda to https://orphans.gbif.org/{}/{}.{}.zip", datasetKey, attempt, subdir, datasetKey, attempt);
         return true;
       } else {
-        LOG.error("Failed to copy storage/dwca/{}/{}.{}.dwca to https://orphans.gbif.org/{}/{}.{}.zip, scp exited with {}", datasetKey, datasetKey, attempt, subdir, datasetKey, attempt, exitVal);
+        LOG.error("Failed to copy storage/abcda/{}.{}.abcda to https://orphans.gbif.org/{}/{}.{}.zip, scp exited with {}", datasetKey, attempt, subdir, datasetKey, attempt, exitVal);
       }
     } catch (IOException e) {
       e.printStackTrace();
@@ -115,7 +115,7 @@ public class DatasetRescueFromAbcdaCache {
   }
 
   /**
-   * Retrieves a dataset from the crawler cache (not really), and either updates the registry or generates an IPT resource folder.
+   * Retrieves a dataset from the crawler cache and updates the registry.
    *
    * @param datasetKey GBIF datasetKey (UUID)
    */
@@ -129,11 +129,11 @@ public class DatasetRescueFromAbcdaCache {
     }
 
     Optional<Endpoint> oldEndpoint = dataset.getEndpoints().stream()
-      .filter(ep -> ep.getType() == EndpointType.DWC_ARCHIVE)
+      .filter(ep -> ep.getType() == EndpointType.BIOCASE_XML_ARCHIVE)
       .findFirst();
 
     if (oldEndpoint.isEmpty()) {
-      LOG.info("{} Can't rescue a non-DWCA dataset from the DwcaCache.", datasetKey);
+      LOG.info("{} Can't rescue a non-ABCDA dataset from the AbcdaCache.", datasetKey);
       return;
     }
 
@@ -171,7 +171,7 @@ public class DatasetRescueFromAbcdaCache {
 
     MachineTag cacheRescue = new MachineTag();
     cacheRescue.setNamespace("orphans.gbif.org");
-    cacheRescue.setName("crawlerDwcaCacheTime");
+    cacheRescue.setName("crawlerAbcdaCacheTime");
     cacheRescue.setValue(DateTimeFormatter.ISO_INSTANT.format(modTime));
     datasetService.addMachineTag(datasetKey, cacheRescue);
 
@@ -184,7 +184,9 @@ public class DatasetRescueFromAbcdaCache {
     MachineTag orphanEndpoint = new MachineTag();
     orphanEndpoint.setNamespace("orphans.gbif.org");
     orphanEndpoint.setName("orphanEndpoint");
-    orphanEndpoint.setValue(dataset.getEndpoints().get(0).getUrl().toString());
+    orphanEndpoint.setValue(dataset.getEndpoints().stream()
+      .filter(ep -> ep.getType() == EndpointType.BIOCASE_XML_ARCHIVE)
+      .findFirst().get().getUrl().toString());
     datasetService.addMachineTag(datasetKey, orphanEndpoint);
 
     // Update endpoint in the registry
@@ -192,7 +194,7 @@ public class DatasetRescueFromAbcdaCache {
       datasetService.deleteEndpoint(datasetKey, oldEndpoint.get().getKey());
 
       Endpoint newEndpoint = new Endpoint();
-      newEndpoint.setType(EndpointType.DWC_ARCHIVE);
+      newEndpoint.setType(EndpointType.BIOCASE_XML_ARCHIVE);
       newEndpoint.setUrl(new URI("https://orphans.gbif.org/" + endPointDirectory + "/" + datasetKey + "." + attempt + ".zip"));
       newEndpoint.setDescription("Orphaned dataset awaiting adoption.");
       datasetService.addEndpoint(datasetKey, newEndpoint);
@@ -208,22 +210,8 @@ public class DatasetRescueFromAbcdaCache {
       watchdogModule.setupOrganizationService(), watchdogModule.setupNodeService(), watchdogModule.setupDatasetProcessStatusService());
 
     List<Pair<String, Integer>> datasets = new ArrayList<>();
-//    datasets.add(Pair.of("# Spiders missing meta.xml 80dd9c94",-241b-4d49-999f-c89de7648525 46));
-//# gbif.ru missing id column 25dee5e7-4e48-49a3-987f-a6799c9ed568 11
-//    datasets.add(Pair.of("# duplicate occurrenceIDs, https://github.com",/gbif/ingestion-management/issues/2237 06e4e4f2-88cd-471d-bc22-31f7662dc115 6));
-//# empty abe59b12-b767-4c9e-8558-67e9842b6a1e 121
-    //datasets.add(Pair.of("# duplicate ids, https://github.com",/gbif/ingestion-management/issues/2238 549342d7-9518-4fc2-aacb-e6c8dc836cd0 32));
-//# missing ids, https://github.com/gbif/ingestion-management/issues/2240 ea3ad43a-e96f-47e8-b3ae-2272d730c18f 12
-//    datasets.add(Pair.of("# missing ids, https://github.com",/gbif/ingestion-management/issues/2241 fce5822d-a4f1-4ee5-a83d-6b0da254240e 40));
-//# duplicate IDS https://github.com/gbif/ingestion-management/issues/2242 1280c87e-dad9-4dcf-82da-9823a3f5b679 10
-//# 404 CLB Markus bae5856f-da10-4333-90a0-5a2135361b30 100
 
-//# bad cert, https://github.com/gbif/ingestion-management/issues/2244 e457257e-fa64-4d64-87b1-8876efacd00c 84
-//# https://github.com/gbif/ingestion-management/issues/2245 duplicate 7e225289-7c61-498a-bbcc-9995685b9abc 316
-
-    datasets.add(Pair.of("ffc92475-874b-49f1-b105-999292702524", 0));
-
-
+//    datasets.add(Pair.of("0c14c8bb-8d89-46f6-b0ee-6839b73a0c99", 57));
 
     for (Pair<String, Integer> dataset : datasets) {
       LOG.info("Rescuing {}", dataset.getLeft());

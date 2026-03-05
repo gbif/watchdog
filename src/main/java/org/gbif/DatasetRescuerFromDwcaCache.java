@@ -10,6 +10,7 @@ import org.gbif.api.service.registry.DatasetProcessStatusService;
 import org.gbif.api.service.registry.DatasetService;
 import org.gbif.api.service.registry.NodeService;
 import org.gbif.api.service.registry.OrganizationService;
+import org.gbif.api.vocabulary.DatasetType;
 import org.gbif.api.vocabulary.EndpointType;
 import org.gbif.api.vocabulary.NodeType;
 import org.gbif.watchdog.config.WatchdogModule;
@@ -23,6 +24,7 @@ import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -120,6 +122,21 @@ public class DatasetRescuerFromDwcaCache {
   private void rescue(UUID datasetKey, int attempt) throws URISyntaxException {
 
     Dataset dataset = datasetService.get(datasetKey);
+
+    if (dataset.getType() == DatasetType.METADATA) {
+      LOG.info("Dataset {} is metadata-only, skipping", datasetKey);
+      return;
+    }
+
+    Optional<Endpoint> oldEndpoint = dataset.getEndpoints().stream()
+      .filter(ep -> ep.getType() == EndpointType.DWC_ARCHIVE)
+      .findFirst();
+
+    if (oldEndpoint.isEmpty()) {
+      LOG.info("{} Can't rescue a non-DWCA dataset from the DwcaCache.", datasetKey);
+      return;
+    }
+
     Organization organization = organizationService.get(dataset.getPublishingOrganizationKey());
     Node node = nodeService.get(organization.getEndorsingNodeKey());
 
@@ -171,13 +188,8 @@ public class DatasetRescuerFromDwcaCache {
     datasetService.addMachineTag(datasetKey, orphanEndpoint);
 
     // Update endpoint in the registry
-    Endpoint oldEndpoint = dataset.getEndpoints().stream()
-      .filter(ep -> ep.getType() == EndpointType.DWC_ARCHIVE)
-      .findFirst()
-      .get();
-
-    if (!oldEndpoint.getUrl().toString().contains("orphans.gbif.org")) {
-      datasetService.deleteEndpoint(datasetKey, oldEndpoint.getKey());
+    if (oldEndpoint.isEmpty() || !oldEndpoint.get().getUrl().toString().contains("orphans.gbif.org")) {
+      datasetService.deleteEndpoint(datasetKey, oldEndpoint.get().getKey());
 
       Endpoint newEndpoint = new Endpoint();
       newEndpoint.setType(EndpointType.DWC_ARCHIVE);
@@ -196,7 +208,28 @@ public class DatasetRescuerFromDwcaCache {
       watchdogModule.setupOrganizationService(), watchdogModule.setupNodeService(), watchdogModule.setupDatasetProcessStatusService());
 
     List<Pair<String, Integer>> datasets = new ArrayList<>();
-    datasets.add(Pair.of("30c0b98d-b54e-4525-a460-936898c480ac", 4));
+//    datasets.add(Pair.of("# Spiders missing meta.xml 80dd9c94",-241b-4d49-999f-c89de7648525 46));
+//# gbif.ru missing id column 25dee5e7-4e48-49a3-987f-a6799c9ed568 11
+//    datasets.add(Pair.of("# duplicate occurrenceIDs, https://github.com",/gbif/ingestion-management/issues/2237 06e4e4f2-88cd-471d-bc22-31f7662dc115 6));
+//# empty abe59b12-b767-4c9e-8558-67e9842b6a1e 121
+    //datasets.add(Pair.of("# duplicate ids, https://github.com",/gbif/ingestion-management/issues/2238 549342d7-9518-4fc2-aacb-e6c8dc836cd0 32));
+//# missing ids, https://github.com/gbif/ingestion-management/issues/2240 ea3ad43a-e96f-47e8-b3ae-2272d730c18f 12
+//    datasets.add(Pair.of("# missing ids, https://github.com",/gbif/ingestion-management/issues/2241 fce5822d-a4f1-4ee5-a83d-6b0da254240e 40));
+//# duplicate IDS https://github.com/gbif/ingestion-management/issues/2242 1280c87e-dad9-4dcf-82da-9823a3f5b679 10
+//# 404 CLB Markus bae5856f-da10-4333-90a0-5a2135361b30 100
+
+//# bad cert, https://github.com/gbif/ingestion-management/issues/2244 e457257e-fa64-4d64-87b1-8876efacd00c 84
+//# https://github.com/gbif/ingestion-management/issues/2245 duplicate 7e225289-7c61-498a-bbcc-9995685b9abc 316
+
+//datasets.add(Pair.of("1329753c-0537-451c-92a1-cddaa4534736", 1));
+//datasets.add(Pair.of("1515a2e8-572c-49a5-9cb1-e8933f3e1f12", 1));
+//datasets.add(Pair.of("b040c606-644f-4f6b-8f43-124c2a00d345", 0));
+//datasets.add(Pair.of("d7435f14-dfc9-4aaa-bef3-5d1ed22d65bf", 29));
+//datasets.add(Pair.of("c5d6095b-6775-4186-81e1-a41a56e9cbcc", 1));
+
+
+
+
 
     for (Pair<String, Integer> dataset : datasets) {
       LOG.info("Rescuing {}", dataset.getLeft());
