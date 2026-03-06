@@ -75,6 +75,9 @@ public class CrawlChecker {
 
               String hash = hashFromCache(datasetKey, attempt, endpointType);
               LOG.info("\tHashed {} {} {} to {}", datasetKey, attempt, endpointType, hash);
+              if (hash == null) {
+                continue;
+              }
 
               if (notModifiedDate == null || !notModifiedHash.equals(hash)) {
                 notModifiedDate = st.getFinishedCrawling();
@@ -85,12 +88,15 @@ public class CrawlChecker {
 
             if (finishReason == NORMAL) {
               // Use most recent not-modified date if there are more recent crawls with the same data
-              String hash = hashFromCache(datasetKey, attempt, endpointType);
-              LOG.info("\tHashed {} {} {} to {}", datasetKey, attempt, endpointType, hash);
-              if (notModifiedDate != null && !notModifiedHash.equals(hash)) {
-                // Hashes don't match, ignore the subsequent not-modified crawl (this must be normal, abort, not_modified).
-                notModifiedDate = st.getFinishedCrawling();
-                notModifiedHash = hash;
+              if (notModifiedDate != null) {
+                String hash = hashFromCache(datasetKey, attempt, endpointType);
+                LOG.info("\tHashed {} {} {} to {}", datasetKey, attempt, endpointType, hash);
+
+                if (!notModifiedHash.equals(hash)) {
+                  // Hashes don't match, ignore the subsequent not-modified crawl (this must be normal, abort, not_modified).
+                  notModifiedDate = st.getFinishedCrawling();
+                  notModifiedHash = hash;
+                }
               }
 
               Date finishedCrawling = (notModifiedDate == null) ? st.getFinishedCrawling() : notModifiedDate;
