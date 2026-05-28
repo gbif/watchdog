@@ -336,7 +336,6 @@ public class DatasetRescuerByDownload {
       e.printStackTrace();
     }
 
-    /*
     // Update endpoint in the registry
     Endpoint oldEndpoint = dataset.getEndpoints().stream()
         .filter(ep -> ep.getType() == EndpointType.BIOCASE || ep.getType() == EndpointType.DIGIR || ep.getType() == EndpointType.DIGIR_MANIS || ep.getType() == EndpointType.BIOCASE || ep.getType() == EndpointType.DWC_ARCHIVE || ep.getType() == EndpointType.TAPIR)
@@ -362,7 +361,6 @@ public class DatasetRescuerByDownload {
       newEndpoint.setDescription("Orphaned dataset awaiting adoption.");
       datasetService.addEndpoint(uuid, newEndpoint);
     }
-    */
   }
 
   public static void main(String... args) throws Exception {
@@ -376,39 +374,7 @@ public class DatasetRescuerByDownload {
       watchdogModule.setupNodeService());
 
     List<String> datasets = new ArrayList<>();
-    datasets.add("818a01e2-f762-11e1-a439-00145eb45e9a");
-    datasets.add("3c6106dd-2948-4bce-894e-e5f8258cc5e7");
-    datasets.add("d40e93a3-63fe-4c2f-be30-af21d4b66a95");
-    datasets.add("8192ba94-f762-11e1-a439-00145eb45e9a");
-    datasets.add("8259b55e-f762-11e1-a439-00145eb45e9a");
-    datasets.add("7e5275e0-f762-11e1-a439-00145eb45e9a");
-    datasets.add("3fb7ddd8-07c0-490d-a0f1-32b5dec8d583");
-    datasets.add("dd047c25-da08-4a26-9490-52252dbdfad7");
-    datasets.add("cfb98735-6065-42fa-8613-fce70d39cbbe");
-    datasets.add("88435d97-186e-4435-98a6-52502aef0a79");
-    datasets.add("c8ec4cc4-c9cf-431e-9390-d41ad30cb1ff");
-    datasets.add("90fa011c-9f9c-476b-b50c-c1ce75a9d5bf");
-    datasets.add("8ac24ec8-1e7b-40a9-a5b4-c8e3037a3431");
-    datasets.add("34585f24-1ffe-4744-8734-7d563c918d18");
-    datasets.add("6ba15d13-dd67-4d24-aa91-bf6a26cd7181");
-    datasets.add("dd83b173-0b9f-4262-a49d-c72982965e69");
-    datasets.add("3b0c24f6-faa0-4f3c-b3c2-89a73bf9cb48");
-    datasets.add("0409a304-cc5d-4af6-b509-5b6667905117");
-    datasets.add("824923c4-f762-11e1-a439-00145eb45e9a");
-    datasets.add("de9feacc-af31-4a63-b439-72b84fcf40ad");
-    datasets.add("91bdce11-da40-41b6-a042-ed56fb1f7fc1");
-    datasets.add("12a6bf1f-f66e-408c-8c6c-771af210e6a8");
-    datasets.add("f46c2ce0-8853-4c93-9922-63f850413809");
-    datasets.add("800489ed-b266-4c34-8495-355537068fb1");
-    datasets.add("e381b970-9b62-4664-a249-6023b6fa8ef9");
-    datasets.add("dcf2e144-9956-491f-a5ac-8990c7fea3b9");
-    datasets.add("5c4a1973-2b2f-4c32-a9c8-65150ef4cf13");
-    datasets.add("d4eb19bc-fdce-415f-9a61-49b036009840");
-    datasets.add("33614778-513a-4ec0-814d-125021cca5fe");
-    datasets.add("8c468e30-1dcf-400e-9606-7ff4bf2c6e58");
-    datasets.add("a5dd8cc3-7971-4b3c-a75c-d345940572bd");
-    datasets.add("a6058f47-15ae-412e-b316-912dd6e2ec9b");
-    datasets.add("33614778-513a-4ec0-814d-125021cca5fe");
+    datasets.add("1597d710-98a2-11de-b4da-b8a03c50a862");
 
     for (String datasetKey : datasets) {
       LOG.info("Rescuing {}", datasetKey);

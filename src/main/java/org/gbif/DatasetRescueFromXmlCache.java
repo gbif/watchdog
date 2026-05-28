@@ -110,9 +110,7 @@ public class DatasetRescueFromXmlCache {
     }
   }
 
-  public static void main(String... args)
-    throws ParseException, IOException, ParserConfigurationException, SAXException,
-    NoSuchFieldException, InterruptedException, URISyntaxException {
+  public static void main(String... args) throws IOException, URISyntaxException {
     WatchdogModule watchdogModule = new WatchdogModule();
     DatasetRescueFromXmlCache rescuer = new DatasetRescueFromXmlCache(watchdogModule.setupDatasetService(),
       watchdogModule.setupOrganizationService(), watchdogModule.setupNodeService());

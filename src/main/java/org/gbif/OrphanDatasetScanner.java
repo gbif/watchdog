@@ -74,6 +74,11 @@ public class OrphanDatasetScanner {
     PagingResponse<Dataset> datasetResults;
     do {
       datasetResults = datasetService.list(datasetPage);
+
+      //List<Dataset> hackDatasets = new ArrayList<>();
+      //hackDatasets.add(datasetService.get(UUID.fromString("4b8ba747-1b70-42c1-be8c-495eca17571d")));
+      //datasetResults = new PagingResponse<>(0, 1000, Long.valueOf(hackDatasets.size()), hackDatasets);
+
       for (Dataset d : datasetResults.getResults()) {
         if (datasets % PAGING_LIMIT == 0) {
           LOG.info("Iterated over " + datasets + " datasets");
